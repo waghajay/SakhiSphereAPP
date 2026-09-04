@@ -199,3 +199,17 @@ export interface PostAuthor {
   avatarUrl: string | null;
   bio?: string | null;
 }
+
+// In src/types/index.ts - Update FeedResponse
+export interface FeedResponse {
+  posts: Post[];
+  feedType?: string;
+  feedExplanation?: string;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+}

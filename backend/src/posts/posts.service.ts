@@ -17,6 +17,12 @@ export interface UpdatePostDto {
   visibility?: PostVisibility;
 }
 
+export interface FeedOptions {
+  page?: number;
+  limit?: number;
+  sortBy?: 'recent' | 'popular' | 'following' | 'interests';
+}
+
 export class PostsService {
   /**
    * Creates a new post.
@@ -76,20 +82,28 @@ export class PostsService {
   }
 
   /**
-   * Gets the feed for a user with pagination.
+   * Gets the feed for a user with advanced algorithm.
    */
-  static async getFeed(userId: number, page: number = 1, limit: number = 10) {
+/**
+   * Gets the feed with advanced ranking algorithm.
+   */
+  static async getFeed(
+    userId: number,
+    options: FeedOptions = {}
+  ) {
     const prisma = getPrisma();
+    const { page = 1, limit = 10, sortBy = 'recent' } = options;
     const skip = (page - 1) * limit;
 
+    // Get user's following list
     const following = await prisma.follow.findMany({
       where: { followerId: userId },
       select: { followingId: true },
     });
 
     const followingIds = following.map(f => f.followingId);
-    const visibleUserIds = [userId, ...followingIds];
 
+    // Get blocked users
     const blockedUsers = await prisma.block.findMany({
       where: { blockerId: userId },
       select: { blockedId: true },
@@ -97,52 +111,240 @@ export class PostsService {
 
     const blockedIds = blockedUsers.map(b => b.blockedId);
 
-    const where: Prisma.PostWhereInput = {
-      userId: {
-        in: visibleUserIds,
-        notIn: blockedIds,
-      },
-      visibility: {
-        in: ['public', 'members_only'],
-      },
-    };
+    // Get user's interests
+    const userInterests = await prisma.userInterest.findMany({
+      where: { userId },
+      select: { interestId: true },
+    });
 
-    const [posts, total] = await Promise.all([
-      prisma.post.findMany({
-        where,
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              isVerified: true,
-              profile: {
-                select: {
-                  avatarUrl: true,
-                },
+    const interestIds = userInterests.map(ui => ui.interestId);
+
+    let posts;
+    let total;
+
+    switch (sortBy) {
+      case 'popular':
+        // Fetch with engagement data for scoring
+        const popularPosts = await prisma.post.findMany({
+          where: {
+            userId: {
+              in: [userId, ...followingIds],
+              notIn: blockedIds,
+            },
+            visibility: { in: ['public', 'members_only'] },
+            createdAt: {
+              gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Last 7 days
+            },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                isVerified: true,
+                profile: { select: { avatarUrl: true } },
               },
             },
-          },
-          likes: {
-            where: { userId },
-            select: { id: true },
-          },
-          _count: {
-            select: {
-              likes: true,
-              comments: true,
+            likes: { where: { userId }, select: { id: true } },
+            _count: {
+              select: { likes: true, comments: true },
             },
           },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      prisma.post.count({ where }),
-    ]);
+        });
+
+        // Calculate engagement score
+        const scoredPosts = popularPosts.map(post => {
+          const likesScore = post._count.likes * 2;
+          const commentsScore = post._count.comments * 3;
+          const engagementScore = likesScore + commentsScore;
+          
+          // Time decay: newer posts get higher score
+          const hoursSincePosted = (Date.now() - post.createdAt.getTime()) / (1000 * 60 * 60);
+          const timeFactor = 1 / (1 + hoursSincePosted);
+          
+          const finalScore = engagementScore * timeFactor;
+          
+          return { post, finalScore };
+        });
+
+        // Sort by score
+        scoredPosts.sort((a, b) => b.finalScore - a.finalScore);
+        
+        // Paginate
+        total = scoredPosts.length;
+        posts = scoredPosts.slice(skip, skip + limit).map(s => s.post);
+        break;
+
+      case 'following':
+        // Only posts from followed users
+        const followingPosts = await prisma.post.findMany({
+          where: {
+            userId: {
+              in: followingIds.length > 0 ? followingIds : [userId],
+              notIn: blockedIds,
+            },
+            visibility: { in: ['public', 'members_only'] },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                isVerified: true,
+                profile: { select: { avatarUrl: true } },
+              },
+            },
+            likes: { where: { userId }, select: { id: true } },
+            _count: {
+              select: { likes: true, comments: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        });
+        
+        total = await prisma.post.count({
+          where: {
+            userId: {
+              in: followingIds.length > 0 ? followingIds : [userId],
+              notIn: blockedIds,
+            },
+            visibility: { in: ['public', 'members_only'] },
+          },
+        });
+        
+        posts = followingPosts;
+        break;
+
+      case 'interests':
+        // Find users with similar interests
+        let similarUserIds: number[] = [];
+        
+        if (interestIds.length > 0) {
+          const usersWithSimilarInterests = await prisma.userInterest.findMany({
+            where: {
+              interestId: { in: interestIds },
+              userId: { 
+                not: userId,
+                notIn: blockedIds,
+              },
+            },
+            select: {
+              userId: true,
+              interestId: true,
+            },
+            distinct: ['userId', 'interestId'],
+            take: 50,
+          });
+
+          // Calculate similarity score for each user
+          const userScores = new Map<number, number>();
+          
+          for (const ui of usersWithSimilarInterests) {
+            const currentScore = userScores.get(ui.userId) || 0;
+            userScores.set(ui.userId, currentScore + 1);
+          }
+
+          // Sort users by similarity score
+          const sortedUsers = Array.from(userScores.entries())
+            .sort((a, b) => b[1] - a[1])
+            .map(entry => entry[0]);
+
+          similarUserIds = sortedUsers.slice(0, 20);
+        }
+
+        const targetUserIds = [...new Set([...similarUserIds, ...followingIds])];
+        
+        const interestPosts = await prisma.post.findMany({
+          where: {
+            userId: {
+              in: targetUserIds.length > 0 ? targetUserIds : [userId],
+              notIn: blockedIds,
+            },
+            visibility: { in: ['public', 'members_only'] },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                isVerified: true,
+                profile: { select: { avatarUrl: true } },
+              },
+            },
+            likes: { where: { userId }, select: { id: true } },
+            _count: {
+              select: { likes: true, comments: true },
+            },
+          },
+          orderBy: [
+            { likes: { _count: 'desc' } },
+            { createdAt: 'desc' },
+          ],
+          skip,
+          take: limit,
+        });
+
+        total = await prisma.post.count({
+          where: {
+            userId: {
+              in: targetUserIds.length > 0 ? targetUserIds : [userId],
+              notIn: blockedIds,
+            },
+            visibility: { in: ['public', 'members_only'] },
+          },
+        });
+
+        posts = interestPosts;
+        break;
+
+      case 'recent':
+      default:
+        // Simple chronological feed
+        posts = await prisma.post.findMany({
+          where: {
+            userId: {
+              in: [userId, ...followingIds],
+              notIn: blockedIds,
+            },
+            visibility: { in: ['public', 'members_only'] },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                isVerified: true,
+                profile: { select: { avatarUrl: true } },
+              },
+            },
+            likes: { where: { userId }, select: { id: true } },
+            _count: {
+              select: { likes: true, comments: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        });
+
+        total = await prisma.post.count({
+          where: {
+            userId: {
+              in: [userId, ...followingIds],
+              notIn: blockedIds,
+            },
+            visibility: { in: ['public', 'members_only'] },
+          },
+        });
+        break;
+    }
 
     return {
       posts: posts.map(post => this.formatPost(post, userId)),
+      feedType: sortBy,
+      feedExplanation: this.getFeedExplanation(sortBy),
       pagination: {
         page,
         limit,
@@ -152,6 +354,25 @@ export class PostsService {
       },
     };
   }
+
+
+ /**
+   * Returns explanation for each feed type.
+   */
+  private static getFeedExplanation(sortBy: string): string {
+    switch (sortBy) {
+      case 'popular':
+        return 'Posts ranked by engagement (likes + comments) with recent posts boosted';
+      case 'following':
+        return 'Posts from people you follow, newest first';
+      case 'interests':
+        return 'Posts from users with similar interests to yours';
+      case 'recent':
+      default:
+        return 'Newest posts from your network';
+    }
+  }
+
 
   /**
    * Gets a single post by ID.
@@ -290,7 +511,6 @@ export class PostsService {
       throw new CustomError('You can only delete your own posts', 403);
     }
 
-    // Delete associated media from Cloudinary
     if (post.mediaUrls && post.mediaUrls.length > 0) {
       for (const url of post.mediaUrls) {
         try {
@@ -324,7 +544,6 @@ export class PostsService {
         const lastPart = relevantParts[relevantParts.length - 1];
         const lastPartWithoutExt = lastPart.split('.')[0];
         relevantParts[relevantParts.length - 1] = lastPartWithoutExt;
-        
         return relevantParts.join('/');
       }
       

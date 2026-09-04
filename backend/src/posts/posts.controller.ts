@@ -81,6 +81,43 @@ export class PostsController {
     }
   }
 
+/**
+ * GET /api/posts/feed?sortBy=recent|popular|following|interests
+ * Gets the feed with sorting options.
+ */
+static async getFeed(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user?.id) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const sortBy = (req.query.sortBy as string) || 'recent';
+
+    // Validate sortBy
+    const validSortOptions = ['recent', 'popular', 'following', 'interests'];
+    if (!validSortOptions.includes(sortBy)) {
+      res.status(400).json({ 
+        success: false, 
+        message: 'Invalid sortBy option. Use: recent, popular, following, interests' 
+      });
+      return;
+    }
+
+    const result = await PostsService.getFeed(req.user.id, {
+      page,
+      limit,
+      sortBy: sortBy as any,
+    });
+
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
   /**
    * PUT /api/posts/:id
    * Updates a post.

@@ -4,17 +4,17 @@ import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -99,7 +99,7 @@ export default function CreatePostScreen() {
     setMediaBase64((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Updated handleSubmit in create-post.tsx
+  // In create-post.tsx, update handleSubmit to handle errors better
   const handleSubmit = async () => {
     if (!content.trim() && mediaImages.length === 0) {
       Alert.alert(
@@ -113,15 +113,13 @@ export default function CreatePostScreen() {
     setUploading(true);
 
     try {
-      // For now, use local URIs directly (will be replaced with Cloudinary URLs in production)
       const uploadedUrls: string[] = [];
       const uploadedTypes: ("image" | "video")[] = [];
 
-      // Upload only images (skip videos for now due to size limitations)
       for (let i = 0; i < mediaBase64.length; i++) {
         const media = mediaBase64[i];
 
-        if (media.type === "image" && media.base64) {
+        if (media.base64) {
           setUploadProgress(`Uploading ${i + 1}/${mediaBase64.length}...`);
 
           try {
@@ -131,21 +129,21 @@ export default function CreatePostScreen() {
               "sakhisphere/posts",
             );
             uploadedUrls.push(result.url);
-            uploadedTypes.push("image");
+            uploadedTypes.push(media.type);
           } catch (uploadError) {
             console.error(`Failed to upload media ${i + 1}:`, uploadError);
             // Fallback to local URI if upload fails
             uploadedUrls.push(mediaImages[i]);
-            uploadedTypes.push("image");
+            uploadedTypes.push(media.type);
           }
-        } else if (media.type === "video") {
-          // For videos, use local URI for now
+        } else {
+          // No base64, use local URI directly
           uploadedUrls.push(mediaImages[i]);
-          uploadedTypes.push("video");
+          uploadedTypes.push(media.type);
         }
       }
 
-      // Create post with uploaded URLs
+      // Create post even if some uploads failed
       const post = await createPost({
         content: content.trim(),
         mediaUrls: uploadedUrls,
@@ -154,10 +152,7 @@ export default function CreatePostScreen() {
       });
 
       Alert.alert("Success", "Your post has been created!", [
-        {
-          text: "OK",
-          onPress: () => router.back(),
-        },
+        { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error: any) {
       Alert.alert("Error", error.message || "Failed to create post");

@@ -4,7 +4,7 @@ import { CloudinaryService } from '../services/cloudinary.service';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { CustomError } from '../middleware/errorHandler';
+import sharp from 'sharp';
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -47,10 +47,35 @@ const videoUpload = multer({
   },
 });
 
+// Helper function to compress image (outside class)
+async function compressImage(filePath: string): Promise<string | null> {
+  try {
+    const compressedPath = filePath.replace(/\.(jpg|jpeg|png)$/i, '_compressed.jpg');
+    
+    await sharp(filePath)
+      .resize(1080, 1080, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: 80 })
+      .toFile(compressedPath);
+
+    // Delete original file
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    return compressedPath;
+  } catch (error) {
+    console.error('Image compression failed:', error);
+    return null;
+  }
+}
+
 export class UploadController {
   /**
    * POST /api/upload/image
-   * Uploads an image.
+   * Uploads and compresses an image.
    */
   static async uploadImage(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -64,8 +89,11 @@ export class UploadController {
         return;
       }
 
+      // Compress image before upload
+      const compressedPath = await compressImage(req.file.path);
+      
       const folder = req.body.folder || `sakhisphere/users/${req.user.id}`;
-      const result = await CloudinaryService.uploadImage(req.file.path, folder);
+      const result = await CloudinaryService.uploadImage(compressedPath || req.file.path, folder);
 
       res.status(201).json({
         success: true,
@@ -79,7 +107,7 @@ export class UploadController {
 
   /**
    * POST /api/upload/video
-   * Uploads a video.
+   * Uploads a video with thumbnail generation.
    */
   static async uploadVideo(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -108,7 +136,7 @@ export class UploadController {
 
   /**
    * POST /api/upload/base64
-   * Uploads a base64 encoded image.
+   * Uploads a base64 encoded image with compression.
    */
   static async uploadBase64(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -144,7 +172,9 @@ export class UploadController {
       
       let result;
       if (mimeType.startsWith('image/')) {
-        result = await CloudinaryService.uploadImage(filePath, uploadFolder);
+        // Compress image first
+        const compressedPath = await compressImage(filePath);
+        result = await CloudinaryService.uploadImage(compressedPath || filePath, uploadFolder);
       } else if (mimeType.startsWith('video/')) {
         result = await CloudinaryService.uploadVideo(filePath, uploadFolder);
       } else {

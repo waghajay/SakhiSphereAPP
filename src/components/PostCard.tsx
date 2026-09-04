@@ -5,13 +5,13 @@ import {
   Animated,
   Dimensions,
   Image,
-  Modal,
-  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
+import { ImageGallery } from "./ImageGallery";
+import { ShareModal } from "./ShareModal";
 
 const { width, height } = Dimensions.get("window");
 
@@ -32,38 +32,30 @@ export function PostCard({
 }: PostCardProps) {
   const likeScale = useRef(new Animated.Value(1)).current;
   const [isAnimating, setIsAnimating] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewImages, setPreviewImages] = useState<string[] | null>(null);
+  const [initialImageIndex, setInitialImageIndex] = useState(0);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   const handleLike = () => {
     if (onLike) {
       onLike(post.id);
-      // Animate
-      if (!post.likedByMe) {
-        setIsAnimating(true);
-        likeScale.setValue(0.5);
-        Animated.spring(likeScale, {
-          toValue: 1,
-          friction: 3,
-          tension: 100,
-          useNativeDriver: true,
-        }).start(() => setIsAnimating(false));
-      }
+      // Animate like
+      setIsAnimating(true);
+      likeScale.setValue(0.5);
+      Animated.spring(likeScale, {
+        toValue: 1,
+        friction: 3,
+        tension: 100,
+        useNativeDriver: true,
+      }).start(() => setIsAnimating(false));
     }
   };
 
-  const handleShare = async () => {
+  const handleShare = () => {
     if (onShare) {
       onShare(post);
-      return;
-    }
-
-    try {
-      await Share.share({
-        message: `${post.content}\n\nShared from SakhiSphere 🌸`,
-        title: "Share Post",
-      });
-    } catch (error) {
-      console.error("Share failed:", error);
+    } else {
+      setShowShareModal(true);
     }
   };
 
@@ -83,8 +75,11 @@ export function PostCard({
     }
   };
 
-  const handleImagePress = (url: string) => {
-    setPreviewImage(url);
+  const handleImagePress = (index: number) => {
+    if (post.mediaUrls && post.mediaUrls.length > 0) {
+      setInitialImageIndex(index);
+      setPreviewImages(post.mediaUrls);
+    }
   };
 
   const formatRelativeTime = (dateString: string) => {
@@ -144,7 +139,7 @@ export function PostCard({
         <View style={styles.mediaContainer}>
           {post.mediaUrls.length === 1 ? (
             <TouchableOpacity
-              onPress={() => handleImagePress(post.mediaUrls![0])}
+              onPress={() => handleImagePress(0)}
               activeOpacity={0.9}
             >
               <Image
@@ -158,8 +153,13 @@ export function PostCard({
               {post.mediaUrls.map((url, index) => (
                 <TouchableOpacity
                   key={index}
-                  onPress={() => handleImagePress(url)}
+                  onPress={() => handleImagePress(index)}
                   activeOpacity={0.9}
+                  style={
+                    index === 2 && post.mediaUrls!.length === 3
+                      ? styles.fullWidthWrapper
+                      : undefined
+                  }
                 >
                   <Image
                     source={{ uri: url }}
@@ -171,6 +171,13 @@ export function PostCard({
                     ]}
                     resizeMode="cover"
                   />
+                  {post.mediaUrls!.length > 2 && index === 1 && (
+                    <View style={styles.moreImagesOverlay}>
+                      <Text style={styles.moreImagesText}>
+                        +{post.mediaUrls!.length - 2}
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               ))}
             </View>
@@ -207,29 +214,20 @@ export function PostCard({
         </TouchableOpacity>
       </View>
 
-      {/* Image Preview Modal */}
-      <Modal
-        visible={previewImage !== null}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setPreviewImage(null)}
-      >
-        <View style={styles.previewModal}>
-          <TouchableOpacity
-            style={styles.previewCloseButton}
-            onPress={() => setPreviewImage(null)}
-          >
-            <Text style={styles.previewCloseText}>✕</Text>
-          </TouchableOpacity>
-          {previewImage && (
-            <Image
-              source={{ uri: previewImage }}
-              style={styles.previewImage}
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      </Modal>
+      {/* Image Gallery Modal */}
+      <ImageGallery
+        images={previewImages || []}
+        visible={previewImages !== null}
+        initialIndex={initialImageIndex}
+        onClose={() => setPreviewImages(null)}
+      />
+
+      {/* Share Modal */}
+      <ShareModal
+        post={post}
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+      />
     </View>
   );
 }
@@ -307,6 +305,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 4,
   },
+  fullWidthWrapper: {
+    width: "100%",
+  },
   multiImage: {
     width: "49%",
     height: 150,
@@ -315,6 +316,20 @@ const styles = StyleSheet.create({
   fullWidthImage: {
     width: "100%",
     height: 180,
+  },
+  moreImagesOverlay: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  moreImagesText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
   },
   actions: {
     flexDirection: "row",
@@ -339,32 +354,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#6B7280",
     fontWeight: "500",
-  },
-  previewModal: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.9)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  previewCloseButton: {
-    position: "absolute",
-    top: 50,
-    right: 20,
-    zIndex: 10,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  previewCloseText: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  previewImage: {
-    width: width,
-    height: height * 0.8,
   },
 });

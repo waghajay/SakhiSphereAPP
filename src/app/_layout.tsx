@@ -1,3 +1,4 @@
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -11,7 +12,7 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <>
+    <ErrorBoundary>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }}>
         {/* Auth Screens */}
@@ -28,11 +29,11 @@ export default function RootLayout() {
 
         {/* Post Screens */}
         <Stack.Screen name="create-post" options={{ presentation: "modal" }} />
+        <Stack.Screen name="post/[id]" />
         <Stack.Screen
           name="edit-post/[id]"
           options={{ presentation: "modal" }}
         />
-        <Stack.Screen name="post/[id]" />
         <Stack.Screen name="liked-posts" />
 
         {/* User Screens */}
@@ -40,6 +41,6 @@ export default function RootLayout() {
         <Stack.Screen name="followers/[userId]" />
         <Stack.Screen name="following/[userId]" />
       </Stack>
-    </>
+    </ErrorBoundary>
   );
 }

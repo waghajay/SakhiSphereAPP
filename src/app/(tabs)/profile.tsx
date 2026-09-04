@@ -1,11 +1,15 @@
 import { getFollowCounts } from "@/services/api/follow";
+import { getUserPosts } from "@/services/api/posts";
 import { getMyProfile } from "@/services/api/user";
 import { getUserData } from "@/services/storage/token";
-import type { UserProfile } from "@/types";
+import type { Post, UserProfile } from "@/types";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
+  FlatList,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,8 +19,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+const { width } = Dimensions.get("window");
+const GRID_SIZE = (width - 32 - 4) / 3; // Account for padding and gaps
+
 export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [followCounts, setFollowCounts] = useState({
@@ -49,10 +57,23 @@ export default function ProfileScreen() {
     }
   };
 
+  const fetchUserPosts = async () => {
+    try {
+      const userData = await getUserData();
+      if (userData) {
+        const data = await getUserPosts(userData.id, 1, 20);
+        setPosts(data.posts);
+      }
+    } catch (error) {
+      console.error("Failed to fetch user posts:", error);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       fetchProfile();
       fetchSocialStats();
+      fetchUserPosts();
     }, []),
   );
 
@@ -60,6 +81,7 @@ export default function ProfileScreen() {
     setRefreshing(true);
     fetchProfile();
     fetchSocialStats();
+    fetchUserPosts();
   };
 
   if (loading && !profile) {
@@ -72,6 +94,37 @@ export default function ProfileScreen() {
 
   const isVerified = Boolean(profile?.is_verified);
   const interests = profile?.interests || [];
+  const mediaPosts = posts.filter(
+    (post) => post.mediaUrls && post.mediaUrls.length > 0,
+  );
+
+  const renderGridItem = ({ item }: { item: Post }) => (
+    <TouchableOpacity
+      style={styles.gridItem}
+      onPress={() => router.push(`/post/${item.id}` as any)}
+      activeOpacity={0.8}
+    >
+      {item.mediaUrls && item.mediaUrls.length > 0 && (
+        <>
+          <Image
+            source={{ uri: item.mediaUrls[0] }}
+            style={styles.gridImage}
+            resizeMode="cover"
+          />
+          {item.mediaUrls.length > 1 && (
+            <View style={styles.multipleBadge}>
+              <Text style={styles.multipleBadgeText}>📑</Text>
+            </View>
+          )}
+          {item.mediaTypes && item.mediaTypes[0] === "video" && (
+            <View style={styles.videoBadge}>
+              <Text style={styles.videoBadgeText}>▶</Text>
+            </View>
+          )}
+        </>
+      )}
+    </TouchableOpacity>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -172,6 +225,21 @@ export default function ProfileScreen() {
             <Text style={styles.editProfileBtnText}>✏️ Edit Profile</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Media Grid */}
+        {mediaPosts.length > 0 && (
+          <View style={styles.gridSection}>
+            <Text style={styles.gridSectionTitle}>My Posts</Text>
+            <FlatList
+              data={mediaPosts}
+              renderItem={renderGridItem}
+              keyExtractor={(item) => item.id.toString()}
+              numColumns={3}
+              scrollEnabled={false}
+              contentContainerStyle={styles.gridContainer}
+            />
+          </View>
+        )}
 
         {/* Verification Status Banner */}
         <TouchableOpacity
@@ -444,6 +512,60 @@ const styles = StyleSheet.create({
   editProfileBtnText: {
     color: "#7C3AED",
     fontSize: 14,
+    fontWeight: "700",
+  },
+  gridSection: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  gridSectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 12,
+  },
+  gridContainer: {
+    gap: 2,
+  },
+  gridItem: {
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    margin: 1,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  gridImage: {
+    width: "100%",
+    height: "100%",
+  },
+  multipleBadge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    borderRadius: 4,
+    padding: 2,
+  },
+  multipleBadgeText: {
+    fontSize: 10,
+  },
+  videoBadge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
     fontWeight: "700",
   },
   bannerCard: {

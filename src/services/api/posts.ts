@@ -30,10 +30,11 @@ export async function createPost(payload: CreatePostPayload): Promise<Post> {
 export async function getFeed(
   page: number = 1,
   limit: number = 10,
+  sortBy: "recent" | "popular" | "following" | "interests" = "recent",
 ): Promise<FeedResponse> {
   const headers = await authHeaders();
   const response = await fetch(
-    `${API_BASE_URL}/posts/feed?page=${page}&limit=${limit}`,
+    `${API_BASE_URL}/posts/feed?page=${page}&limit=${limit}&sortBy=${sortBy}`,
     { method: "GET", headers },
   );
 

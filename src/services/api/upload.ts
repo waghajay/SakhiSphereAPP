@@ -8,6 +8,7 @@ export interface UploadResult {
   width?: number;
   height?: number;
   format?: string;
+  duration?: number;
 }
 
 export interface UploadBase64Payload {
@@ -17,8 +18,7 @@ export interface UploadBase64Payload {
 }
 
 /**
- * Uploads a base64 encoded image to Cloudinary via backend.
- * POST /api/upload/base64
+ * Uploads a base64 encoded image with compression.
  */
 export async function uploadBase64Image(
   base64: string,
@@ -27,11 +27,7 @@ export async function uploadBase64Image(
 ): Promise<UploadResult> {
   const token = await getAuthToken();
 
-  const payload: UploadBase64Payload = {
-    base64,
-    mimeType,
-    folder,
-  };
+  const payload: UploadBase64Payload = { base64, mimeType, folder };
 
   const response = await fetch(`${API_BASE_URL}/upload/base64`, {
     method: "POST",
@@ -52,43 +48,35 @@ export async function uploadBase64Image(
 }
 
 /**
- * Uploads a base64 encoded video to Cloudinary via backend.
- * POST /api/upload/base64
+ * Uploads multiple images.
  */
-export async function uploadBase64Video(
-  base64: string,
-  mimeType: string,
+export async function uploadMultipleImages(
+  images: { base64: string; mimeType: string }[],
   folder?: string,
-): Promise<UploadResult> {
-  const token = await getAuthToken();
+): Promise<UploadResult[]> {
+  const results: UploadResult[] = [];
 
-  const payload: UploadBase64Payload = {
-    base64,
-    mimeType,
-    folder,
-  };
-
-  const response = await fetch(`${API_BASE_URL}/upload/base64`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok || !data.success) {
-    throw new Error(data.message || "Failed to upload video");
+  for (const image of images) {
+    if (image.base64) {
+      try {
+        const result = await uploadBase64Image(
+          image.base64,
+          image.mimeType,
+          folder,
+        );
+        results.push(result);
+      } catch (error) {
+        console.error("Failed to upload image:", error);
+        // Continue with other images
+      }
+    }
   }
 
-  return data.data as UploadResult;
+  return results;
 }
 
 /**
  * Deletes a file from Cloudinary.
- * DELETE /api/upload/:publicId
  */
 export async function deleteFile(
   publicId: string,
@@ -111,92 +99,4 @@ export async function deleteFile(
   if (!response.ok || !data.success) {
     throw new Error(data.message || "Failed to delete file");
   }
-}
-
-/**
- * Uploads an image file using FormData.
- * POST /api/upload/image
- */
-export async function uploadImageFile(
-  fileUri: string,
-  folder?: string,
-): Promise<UploadResult> {
-  const token = await getAuthToken();
-
-  const formData = new FormData();
-  const fileName = fileUri.split("/").pop() || "image.jpg";
-  const fileType = fileName.endsWith(".png")
-    ? "image/png"
-    : fileName.endsWith(".webp")
-      ? "image/webp"
-      : "image/jpeg";
-
-  formData.append("image", {
-    uri: fileUri,
-    name: fileName,
-    type: fileType,
-  } as any);
-
-  if (folder) {
-    formData.append("folder", folder);
-  }
-
-  const response = await fetch(`${API_BASE_URL}/upload/image`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "multipart/form-data",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: formData,
-  });
-
-  const data = await response.json();
-
-  if (!response.ok || !data.success) {
-    throw new Error(data.message || "Failed to upload image");
-  }
-
-  return data.data as UploadResult;
-}
-
-/**
- * Uploads a video file using FormData.
- * POST /api/upload/video
- */
-export async function uploadVideoFile(
-  fileUri: string,
-  folder?: string,
-): Promise<UploadResult> {
-  const token = await getAuthToken();
-
-  const formData = new FormData();
-  const fileName = fileUri.split("/").pop() || "video.mp4";
-  const fileType = fileName.endsWith(".webm") ? "video/webm" : "video/mp4";
-
-  formData.append("video", {
-    uri: fileUri,
-    name: fileName,
-    type: fileType,
-  } as any);
-
-  if (folder) {
-    formData.append("folder", folder);
-  }
-
-  const response = await fetch(`${API_BASE_URL}/upload/video`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "multipart/form-data",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: formData,
-  });
-
-  const data = await response.json();
-
-  if (!response.ok || !data.success) {
-    throw new Error(data.message || "Failed to upload video");
-  }
-
-  return data.data as UploadResult;
 }

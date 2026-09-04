@@ -1,8 +1,9 @@
+import { PostCard } from "@/components/PostCard";
 import {
-    checkFollowStatus,
-    getFollowCounts,
-    getMutualConnections,
-    toggleFollow,
+  checkFollowStatus,
+  getFollowCounts,
+  getMutualConnections,
+  toggleFollow,
 } from "@/services/api/follow";
 import { toggleLike } from "@/services/api/likes";
 import { getUserPosts } from "@/services/api/posts";
@@ -11,21 +12,22 @@ import type { Post, UserProfile } from "@/types";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Animated,
-    Dimensions,
-    FlatList,
-    Image,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
+const GRID_SIZE = (width - 32 - 4) / 3;
 
 export default function UserProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -41,16 +43,14 @@ export default function UserProfileScreen() {
     followingCount: 0,
     postsCount: 0,
   });
-  const [activeTab, setActiveTab] = useState<"posts" | "about" | "likes">(
+  const [activeTab, setActiveTab] = useState<"posts" | "media" | "about">(
     "posts",
   );
   const [mutualConnections, setMutualConnections] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [likedPosts, setLikedPosts] = useState<Post[]>([]);
 
-  // Animation
   const followScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function UserProfileScreen() {
 
   const loadPosts = async (pageNum: number = 1, refresh: boolean = false) => {
     try {
-      const data = await getUserPosts(userId, pageNum, 10);
+      const data = await getUserPosts(userId, pageNum, 20);
 
       if (refresh) {
         setPosts(data.posts);
@@ -129,7 +129,6 @@ export default function UserProfileScreen() {
         followersCount: result.followersCount,
       }));
 
-      // Animate follow button
       followScale.setValue(0.9);
       Animated.spring(followScale, {
         toValue: 1,
@@ -180,55 +179,48 @@ export default function UserProfileScreen() {
     Alert.alert("Message", "Messaging feature coming in Phase 4!");
   };
 
-  const renderPost = ({ item }: { item: Post }) => (
-    <View style={styles.postCard}>
-      <Text style={styles.postContent}>{item.content}</Text>
+  const mediaPosts = posts.filter(
+    (post) => post.mediaUrls && post.mediaUrls.length > 0,
+  );
 
+  const renderGridItem = ({ item }: { item: Post }) => (
+    <TouchableOpacity
+      style={styles.gridItem}
+      onPress={() => router.push(`/post/${item.id}` as any)}
+      activeOpacity={0.8}
+    >
       {item.mediaUrls && item.mediaUrls.length > 0 && (
-        <View style={styles.mediaContainer}>
-          {item.mediaUrls.length === 1 ? (
-            <Image
-              source={{ uri: item.mediaUrls[0] }}
-              style={styles.singleImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.multiImageContainer}>
-              {item.mediaUrls.map((url, index) => (
-                <Image
-                  key={index}
-                  source={{ uri: url }}
-                  style={styles.multiImage}
-                  resizeMode="cover"
-                />
-              ))}
+        <>
+          <Image
+            source={{ uri: item.mediaUrls[0] }}
+            style={styles.gridImage}
+            resizeMode="cover"
+          />
+          {item.mediaUrls.length > 1 && (
+            <View style={styles.multipleBadge}>
+              <Text style={styles.multipleBadgeText}>📑</Text>
             </View>
           )}
-        </View>
+          {item.mediaTypes && item.mediaTypes[0] === "video" && (
+            <View style={styles.videoBadge}>
+              <Text style={styles.videoBadgeText}>▶</Text>
+            </View>
+          )}
+        </>
       )}
+    </TouchableOpacity>
+  );
 
-      <View style={styles.postActions}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleLike(item.id)}
-        >
-          <Text style={[styles.actionIcon, item.likedByMe && styles.likedIcon]}>
-            {item.likedByMe ? "❤️" : "🤍"}
-          </Text>
-          <Text style={styles.actionText}>{item.likesCount}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push(`/post/${item.id}` as any)}
-        >
-          <Text style={styles.actionIcon}>💬</Text>
-          <Text style={styles.actionText}>{item.commentsCount}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.postDate}>{formatRelativeTime(item.createdAt)}</Text>
-    </View>
+  const renderPostItem = ({ item }: { item: Post }) => (
+    <PostCard
+      post={item}
+      onLike={handleLike}
+      onAuthorPress={(authorId) => {
+        if (authorId !== userId) {
+          router.push(`/user/${authorId}` as any);
+        }
+      }}
+    />
   );
 
   const renderAboutSection = () => (
@@ -282,20 +274,6 @@ export default function UserProfileScreen() {
     </View>
   );
 
-  const formatRelativeTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (diffInSeconds < 60) return "Just now";
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-    if (diffInSeconds < 86400)
-      return `${Math.floor(diffInSeconds / 3600)}h ago`;
-    if (diffInSeconds < 604800)
-      return `${Math.floor(diffInSeconds / 86400)}d ago`;
-    return date.toLocaleDateString();
-  };
-
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -309,9 +287,9 @@ export default function UserProfileScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
-          <Text style={styles.backText}>← Back</Text>
+          <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerTitle}>{profile?.name || "Profile"}</Text>
         <TouchableOpacity
           hitSlop={8}
           onPress={() => Alert.alert("Options", "More options coming soon!")}
@@ -321,9 +299,17 @@ export default function UserProfileScreen() {
       </View>
 
       <FlatList
-        data={activeTab === "posts" ? posts : []}
-        renderItem={renderPost}
+        data={
+          activeTab === "posts"
+            ? posts
+            : activeTab === "media"
+              ? mediaPosts
+              : []
+        }
+        renderItem={activeTab === "media" ? renderGridItem : renderPostItem}
         keyExtractor={(item) => item.id.toString()}
+        numColumns={activeTab === "media" ? 3 : 1}
+        key={activeTab === "media" ? "grid" : "list"}
         contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl
@@ -452,32 +438,30 @@ export default function UserProfileScreen() {
 
             {/* Tab Navigation */}
             <View style={styles.tabContainer}>
-              <TouchableOpacity
-                style={[styles.tab, activeTab === "posts" && styles.activeTab]}
-                onPress={() => setActiveTab("posts")}
-              >
-                <Text
+              {[
+                { value: "posts", label: "Posts", icon: "📝" },
+                { value: "media", label: "Media", icon: "📷" },
+                { value: "about", label: "About", icon: "ℹ️" },
+              ].map((tab) => (
+                <TouchableOpacity
+                  key={tab.value}
                   style={[
-                    styles.tabText,
-                    activeTab === "posts" && styles.activeTabText,
+                    styles.tab,
+                    activeTab === tab.value && styles.activeTab,
                   ]}
+                  onPress={() => setActiveTab(tab.value as any)}
                 >
-                  Posts
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.tab, activeTab === "about" && styles.activeTab]}
-                onPress={() => setActiveTab("about")}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    activeTab === "about" && styles.activeTabText,
-                  ]}
-                >
-                  About
-                </Text>
-              </TouchableOpacity>
+                  <Text style={styles.tabIcon}>{tab.icon}</Text>
+                  <Text
+                    style={[
+                      styles.tabText,
+                      activeTab === tab.value && styles.activeTabText,
+                    ]}
+                  >
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             {/* About Section */}
@@ -490,15 +474,19 @@ export default function UserProfileScreen() {
           ) : null
         }
         ListEmptyComponent={
-          activeTab === "posts" ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon}>📝</Text>
-              <Text style={styles.emptyText}>No posts yet</Text>
-              <Text style={styles.emptySubtext}>
-                This user hasn't shared any posts yet.
-              </Text>
-            </View>
-          ) : null
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>
+              {activeTab === "media" ? "📷" : "📝"}
+            </Text>
+            <Text style={styles.emptyText}>
+              {activeTab === "media" ? "No media posts" : "No posts yet"}
+            </Text>
+            <Text style={styles.emptySubtext}>
+              {activeTab === "media"
+                ? "This user has no photos or videos"
+                : "This user hasn't shared any posts yet."}
+            </Text>
+          </View>
         }
       />
     </SafeAreaView>
@@ -520,14 +508,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 14,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
   backText: {
-    fontSize: 16,
+    fontSize: 22,
     color: "#7C3AED",
     fontWeight: "600",
   },
@@ -542,7 +530,6 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    gap: 12,
     paddingBottom: 40,
   },
   profileHeader: {
@@ -706,16 +693,20 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: "center",
+    gap: 4,
   },
   activeTab: {
     backgroundColor: "#F3E8FF",
     borderBottomWidth: 3,
     borderBottomColor: "#7C3AED",
   },
+  tabIcon: {
+    fontSize: 16,
+  },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
     color: "#6B7280",
   },
@@ -770,65 +761,43 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#6B21A8",
   },
-  postCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 12,
+  gridItem: {
+    width: GRID_SIZE,
+    height: GRID_SIZE,
+    margin: 1,
+    borderRadius: 4,
+    overflow: "hidden",
   },
-  postContent: {
-    fontSize: 14,
-    color: "#1F2937",
-    lineHeight: 20,
-    marginBottom: 10,
-  },
-  mediaContainer: {
-    marginBottom: 10,
-  },
-  singleImage: {
+  gridImage: {
     width: "100%",
-    height: 200,
+    height: "100%",
+  },
+  multipleBadge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    borderRadius: 4,
+    padding: 2,
+  },
+  multipleBadgeText: {
+    fontSize: 10,
+  },
+  videoBadge: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    width: 20,
+    height: 20,
     borderRadius: 10,
-  },
-  multiImageContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 4,
-  },
-  multiImage: {
-    width: "49%",
-    height: 140,
-    borderRadius: 8,
-  },
-  postActions: {
-    flexDirection: "row",
-    gap: 20,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
-  actionButton: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    justifyContent: "center",
   },
-  actionIcon: {
-    fontSize: 14,
-  },
-  likedIcon: {
-    color: "#EF4444",
-  },
-  actionText: {
-    fontSize: 13,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  postDate: {
-    fontSize: 11,
-    color: "#9CA3AF",
-    marginTop: 8,
+  videoBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
   },
   emptyContainer: {
     alignItems: "center",
