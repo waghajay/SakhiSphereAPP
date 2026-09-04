@@ -22,6 +22,7 @@ export class SettingsController {
 
   /**
    * PUT /api/settings/notifications (Protected)
+   * Accepts both camelCase and snake_case keys
    */
   static async updateNotifications(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -30,7 +31,17 @@ export class SettingsController {
         return;
       }
 
-      const updated = await SettingsService.updateNotifications(req.user.id, req.body);
+      const body = req.body;
+
+      // Convert snake_case to camelCase
+      const data = {
+        pushNotifications: body.pushNotifications ?? body.push_notifications,
+        emailNotifications: body.emailNotifications ?? body.email_notifications,
+        chatNotifications: body.chatNotifications ?? body.chat_notifications,
+        communityUpdates: body.communityUpdates ?? body.community_updates,
+      };
+
+      const updated = await SettingsService.updateNotifications(req.user.id, data);
       res.status(200).json({
         success: true,
         message: 'Notification settings updated',
@@ -43,6 +54,7 @@ export class SettingsController {
 
   /**
    * PUT /api/settings/privacy (Protected)
+   * Accepts both camelCase and snake_case keys
    */
   static async updatePrivacy(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -51,7 +63,16 @@ export class SettingsController {
         return;
       }
 
-      const updated = await SettingsService.updatePrivacy(req.user.id, req.body);
+      const body = req.body;
+
+      // Convert snake_case to camelCase
+      const data = {
+        profileVisibility: body.profileVisibility ?? body.privacy_profile_visibility,
+        allowMessages: body.allowMessages ?? body.privacy_allow_messages,
+        showOnlineStatus: body.showOnlineStatus ?? body.privacy_show_online_status,
+      };
+
+      const updated = await SettingsService.updatePrivacy(req.user.id, data);
       res.status(200).json({
         success: true,
         message: 'Privacy settings updated',

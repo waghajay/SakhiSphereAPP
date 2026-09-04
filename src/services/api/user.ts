@@ -1,20 +1,19 @@
-import { API_BASE_URL } from '@/constants/Api';
-import { getAuthToken } from '@/services/storage/token';
+import { API_BASE_URL } from "@/constants/Api";
+import { getAuthToken } from "@/services/storage/token";
 import type {
   Interest,
   NotificationSettings,
   PrivacySettings,
-  SubmitVerificationPayload,
   UpdateProfilePayload,
   UserProfile,
   UserSettingsResponse,
   VerificationStatusResponse,
-} from '@/types';
+} from "@/types";
 
 async function authHeaders(): Promise<HeadersInit> {
   const token = await getAuthToken();
   return {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
@@ -23,20 +22,40 @@ async function authHeaders(): Promise<HeadersInit> {
 
 export async function getMyProfile(): Promise<UserProfile> {
   const headers = await authHeaders();
-  const response = await fetch(`${API_BASE_URL}/profile`, { method: 'GET', headers });
+  const response = await fetch(`${API_BASE_URL}/profile`, {
+    method: "GET",
+    headers,
+  });
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to fetch profile');
+    throw new Error(data.message || "Failed to fetch profile");
   }
 
   return data.data.profile as UserProfile;
 }
 
-export async function updateMyProfile(payload: UpdateProfilePayload): Promise<UserProfile> {
+export async function getPublicProfile(userId: number): Promise<UserProfile> {
+  const headers = await authHeaders();
+  const response = await fetch(`${API_BASE_URL}/profile/${userId}`, {
+    method: "GET",
+    headers,
+  });
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Failed to fetch profile");
+  }
+
+  return data.data.profile as UserProfile;
+}
+
+export async function updateMyProfile(
+  payload: UpdateProfilePayload,
+): Promise<UserProfile> {
   const headers = await authHeaders();
   const response = await fetch(`${API_BASE_URL}/profile`, {
-    method: 'PUT',
+    method: "PUT",
     headers,
     body: JSON.stringify(payload),
   });
@@ -44,7 +63,7 @@ export async function updateMyProfile(payload: UpdateProfilePayload): Promise<Us
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to update profile');
+    throw new Error(data.message || "Failed to update profile");
   }
 
   return data.data.profile as UserProfile;
@@ -53,11 +72,11 @@ export async function updateMyProfile(payload: UpdateProfilePayload): Promise<Us
 // ─── Interests ───────────────────────────────────────────────────────────────
 
 export async function getAllInterests(): Promise<Interest[]> {
-  const response = await fetch(`${API_BASE_URL}/interests`, { method: 'GET' });
+  const response = await fetch(`${API_BASE_URL}/interests`, { method: "GET" });
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to load interests');
+    throw new Error(data.message || "Failed to load interests");
   }
 
   return data.data.interests as Interest[];
@@ -65,20 +84,25 @@ export async function getAllInterests(): Promise<Interest[]> {
 
 export async function getMyInterests(): Promise<Interest[]> {
   const headers = await authHeaders();
-  const response = await fetch(`${API_BASE_URL}/interests/my`, { method: 'GET', headers });
+  const response = await fetch(`${API_BASE_URL}/interests/my`, {
+    method: "GET",
+    headers,
+  });
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to fetch user interests');
+    throw new Error(data.message || "Failed to fetch user interests");
   }
 
   return data.data.interests as Interest[];
 }
 
-export async function selectInterests(interestIds: number[]): Promise<Interest[]> {
+export async function selectInterests(
+  interestIds: number[],
+): Promise<Interest[]> {
   const headers = await authHeaders();
   const response = await fetch(`${API_BASE_URL}/interests/select`, {
-    method: 'POST',
+    method: "POST",
     headers,
     body: JSON.stringify({ interestIds }),
   });
@@ -86,7 +110,7 @@ export async function selectInterests(interestIds: number[]): Promise<Interest[]
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to save interests');
+    throw new Error(data.message || "Failed to save interests");
   }
 
   return data.data.interests as Interest[];
@@ -94,30 +118,47 @@ export async function selectInterests(interestIds: number[]): Promise<Interest[]
 
 // ─── Verification ────────────────────────────────────────────────────────────
 
+export interface SubmitVerificationPayload {
+  verification_type: "id_proof" | "student_id" | "work_id" | "social_profile";
+  document_note?: string;
+  document_base64: string;
+  document_mime_type: string;
+  document_file_name: string;
+}
+
 export async function getVerificationStatus(): Promise<VerificationStatusResponse> {
   const headers = await authHeaders();
-  const response = await fetch(`${API_BASE_URL}/verification/status`, { method: 'GET', headers });
+  const response = await fetch(`${API_BASE_URL}/verification/status`, {
+    method: "GET",
+    headers,
+  });
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to load verification status');
+    throw new Error(data.message || "Failed to load verification status");
   }
 
   return data.data as VerificationStatusResponse;
 }
 
-export async function submitVerificationRequest(payload: SubmitVerificationPayload): Promise<any> {
-  const headers = await authHeaders();
+export async function submitVerificationRequest(
+  payload: SubmitVerificationPayload,
+): Promise<any> {
+  const token = await getAuthToken();
+
   const response = await fetch(`${API_BASE_URL}/verification/request`, {
-    method: 'POST',
-    headers,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(payload),
   });
 
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to submit verification request');
+    throw new Error(data.message || "Failed to submit verification request");
   }
 
   return data.data;
@@ -127,20 +168,25 @@ export async function submitVerificationRequest(payload: SubmitVerificationPaylo
 
 export async function getUserSettings(): Promise<UserSettingsResponse> {
   const headers = await authHeaders();
-  const response = await fetch(`${API_BASE_URL}/settings`, { method: 'GET', headers });
+  const response = await fetch(`${API_BASE_URL}/settings`, {
+    method: "GET",
+    headers,
+  });
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to load settings');
+    throw new Error(data.message || "Failed to load settings");
   }
 
   return data.data as UserSettingsResponse;
 }
 
-export async function updateNotificationSettings(payload: Partial<NotificationSettings>): Promise<UserSettingsResponse> {
+export async function updateNotificationSettings(
+  payload: Partial<NotificationSettings>,
+): Promise<UserSettingsResponse> {
   const headers = await authHeaders();
   const response = await fetch(`${API_BASE_URL}/settings/notifications`, {
-    method: 'PUT',
+    method: "PUT",
     headers,
     body: JSON.stringify({
       push_notifications: payload.pushNotifications,
@@ -153,16 +199,18 @@ export async function updateNotificationSettings(payload: Partial<NotificationSe
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to update notification settings');
+    throw new Error(data.message || "Failed to update notification settings");
   }
 
   return data.data as UserSettingsResponse;
 }
 
-export async function updatePrivacySettings(payload: Partial<PrivacySettings>): Promise<UserSettingsResponse> {
+export async function updatePrivacySettings(
+  payload: Partial<PrivacySettings>,
+): Promise<UserSettingsResponse> {
   const headers = await authHeaders();
   const response = await fetch(`${API_BASE_URL}/settings/privacy`, {
-    method: 'PUT',
+    method: "PUT",
     headers,
     body: JSON.stringify({
       privacy_profile_visibility: payload.profileVisibility,
@@ -174,16 +222,19 @@ export async function updatePrivacySettings(payload: Partial<PrivacySettings>): 
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to update privacy settings');
+    throw new Error(data.message || "Failed to update privacy settings");
   }
 
   return data.data as UserSettingsResponse;
 }
 
-export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
   const headers = await authHeaders();
   const response = await fetch(`${API_BASE_URL}/settings/password`, {
-    method: 'PUT',
+    method: "PUT",
     headers,
     body: JSON.stringify({ currentPassword, newPassword }),
   });
@@ -191,6 +242,6 @@ export async function changePassword(currentPassword: string, newPassword: strin
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || 'Failed to change password');
+    throw new Error(data.message || "Failed to change password");
   }
 }

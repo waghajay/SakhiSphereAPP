@@ -1,70 +1,67 @@
-import { getPool } from '../config/database';
-
-export interface Interest {
-  id: number;
-  name: string;
-  category: string;
-  icon: string | null;
-}
+import { getPrisma } from '../config/database';
+import { Prisma } from '@prisma/client';
 
 export class InterestsService {
   /**
-   * Retrieves all available system interests.
+   * Retrieves all available interests.
    */
-  static async getAllInterests(): Promise<Interest[]> {
-    const pool = getPool();
-    const [rows]: any = await pool.query('SELECT id, name, category, icon FROM interests ORDER BY category, name ASC');
-    return rows;
+  static async getAllInterests() {
+    const prisma = getPrisma();
+    return prisma.interest.findMany({
+      orderBy: [
+        { category: 'asc' },
+        { name: 'asc' },
+      ],
+    });
   }
 
   /**
-   * Retrieves interests selected by a specific user.
+   * Retrieves user's selected interests.
    */
-  static async getUserInterests(userId: number): Promise<Interest[]> {
-    const pool = getPool();
-    const [rows]: any = await pool.query(
-      `SELECT i.id, i.name, i.category, i.icon
-       FROM user_interests ui
-       JOIN interests i ON ui.interest_id = i.id
-       WHERE ui.user_id = ?
-       ORDER BY i.category, i.name ASC`,
-      [userId]
-    );
-    return rows;
+  static async getUserInterests(userId: number) {
+    const prisma = getPrisma();
+    
+    const userInterests = await prisma.userInterest.findMany({
+      where: { userId },
+      include: {
+        interest: true,
+      },
+      orderBy: {
+        interest: {
+          category: 'asc',
+        },
+      },
+    });
+
+    return userInterests.map(ui => ui.interest);
   }
 
   /**
-   * Sets or updates user interests relationally.
+   * Sets user's interests.
    */
-  static async setUserInterests(userId: number, interestIds: number[]): Promise<Interest[]> {
-    const pool = getPool();
-    const connection = await pool.getConnection();
+  static async setUserInterests(userId: number, interestIds: number[]) {
+    const prisma = getPrisma();
 
-    try {
-      await connection.beginTransaction();
+    // Use transaction to ensure data consistency
+    await prisma.$transaction(async (tx) => {
+      // Delete existing interests
+      await tx.userInterest.deleteMany({
+        where: { userId },
+      });
 
-      // Clear previous user interests
-      await connection.query('DELETE FROM user_interests WHERE user_id = ?', [userId]);
-
-      // Insert new selections
-      if (interestIds && interestIds.length > 0) {
-        // Filter unique IDs
+      // Add new interests
+      if (interestIds.length > 0) {
         const uniqueIds = Array.from(new Set(interestIds));
-        const values = uniqueIds.map((id) => [userId, id]);
-
-        await connection.query(
-          'INSERT INTO user_interests (user_id, interest_id) VALUES ?',
-          [values]
-        );
+        
+        await tx.userInterest.createMany({
+          data: uniqueIds.map(interestId => ({
+            userId,
+            interestId,
+          })),
+        });
       }
+    });
 
-      await connection.commit();
-      return this.getUserInterests(userId);
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+    return this.getUserInterests(userId);
   }
 }

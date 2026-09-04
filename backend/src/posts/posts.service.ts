@@ -1,0 +1,451 @@
+import { getPrisma } from '../config/database';
+import { CustomError } from '../middleware/errorHandler';
+import { Prisma, PostVisibility, MediaType } from '@prisma/client';
+import { CloudinaryService } from '../services/cloudinary.service';
+
+export interface CreatePostDto {
+  content: string;
+  mediaUrls?: string[];
+  mediaTypes?: MediaType[];
+  visibility?: PostVisibility;
+}
+
+export interface UpdatePostDto {
+  content?: string;
+  mediaUrls?: string[];
+  mediaTypes?: MediaType[];
+  visibility?: PostVisibility;
+}
+
+export class PostsService {
+  /**
+   * Creates a new post.
+   */
+  static async createPost(userId: number, data: CreatePostDto) {
+    const prisma = getPrisma();
+
+    if (!data.content || !data.content.trim()) {
+      throw new CustomError('Post content is required', 400);
+    }
+
+    if (data.content.length > 5000) {
+      throw new CustomError('Post content must be less than 5000 characters', 400);
+    }
+
+    if (data.mediaUrls && data.mediaTypes) {
+      if (data.mediaUrls.length !== data.mediaTypes.length) {
+        throw new CustomError('Media URLs and types must match', 400);
+      }
+    }
+
+    if (data.mediaUrls && data.mediaUrls.length > 4) {
+      throw new CustomError('Maximum 4 media items allowed per post', 400);
+    }
+
+    const post = await prisma.post.create({
+      data: {
+        userId,
+        content: data.content.trim(),
+        mediaUrls: data.mediaUrls || [],
+        mediaTypes: data.mediaTypes || [],
+        visibility: data.visibility || 'public',
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            isVerified: true,
+            profile: {
+              select: {
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            likes: true,
+            comments: true,
+          },
+        },
+      },
+    });
+
+    return this.formatPost(post);
+  }
+
+  /**
+   * Gets the feed for a user with pagination.
+   */
+  static async getFeed(userId: number, page: number = 1, limit: number = 10) {
+    const prisma = getPrisma();
+    const skip = (page - 1) * limit;
+
+    const following = await prisma.follow.findMany({
+      where: { followerId: userId },
+      select: { followingId: true },
+    });
+
+    const followingIds = following.map(f => f.followingId);
+    const visibleUserIds = [userId, ...followingIds];
+
+    const blockedUsers = await prisma.block.findMany({
+      where: { blockerId: userId },
+      select: { blockedId: true },
+    });
+
+    const blockedIds = blockedUsers.map(b => b.blockedId);
+
+    const where: Prisma.PostWhereInput = {
+      userId: {
+        in: visibleUserIds,
+        notIn: blockedIds,
+      },
+      visibility: {
+        in: ['public', 'members_only'],
+      },
+    };
+
+    const [posts, total] = await Promise.all([
+      prisma.post.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              isVerified: true,
+              profile: {
+                select: {
+                  avatarUrl: true,
+                },
+              },
+            },
+          },
+          likes: {
+            where: { userId },
+            select: { id: true },
+          },
+          _count: {
+            select: {
+              likes: true,
+              comments: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.post.count({ where }),
+    ]);
+
+    return {
+      posts: posts.map(post => this.formatPost(post, userId)),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasMore: page * limit < total,
+      },
+    };
+  }
+
+  /**
+   * Gets a single post by ID.
+   */
+  static async getPost(postId: number, userId?: number) {
+    const prisma = getPrisma();
+
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            isVerified: true,
+            profile: {
+              select: {
+                avatarUrl: true,
+                bio: true,
+              },
+            },
+          },
+        },
+        likes: userId ? {
+          where: { userId },
+          select: { id: true },
+        } : false,
+        _count: {
+          select: {
+            likes: true,
+            comments: true,
+          },
+        },
+      },
+    });
+
+    if (!post) {
+      throw new CustomError('Post not found', 404);
+    }
+
+    return this.formatPost(post, userId);
+  }
+
+  /**
+   * Updates a post with media management.
+   */
+  static async updatePost(postId: number, userId: number, data: UpdatePostDto) {
+    const prisma = getPrisma();
+
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+    });
+
+    if (!post) {
+      throw new CustomError('Post not found', 404);
+    }
+
+    if (post.userId !== userId) {
+      throw new CustomError('You can only edit your own posts', 403);
+    }
+
+    const updateData: Prisma.PostUpdateInput = {};
+
+    if (data.content !== undefined) {
+      if (!data.content.trim()) {
+        throw new CustomError('Post content cannot be empty', 400);
+      }
+      if (data.content.length > 5000) {
+        throw new CustomError('Post content must be less than 5000 characters', 400);
+      }
+      updateData.content = data.content.trim();
+    }
+
+    if (data.mediaUrls !== undefined) {
+      if (data.mediaUrls.length > 4) {
+        throw new CustomError('Maximum 4 media items allowed', 400);
+      }
+      updateData.mediaUrls = data.mediaUrls;
+    }
+
+    if (data.mediaTypes !== undefined) {
+      updateData.mediaTypes = data.mediaTypes;
+    }
+
+    if (data.visibility !== undefined) {
+      updateData.visibility = data.visibility;
+    }
+
+    const updatedPost = await prisma.post.update({
+      where: { id: postId },
+      data: updateData,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            isVerified: true,
+            profile: {
+              select: {
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+        likes: {
+          where: { userId },
+          select: { id: true },
+        },
+        _count: {
+          select: {
+            likes: true,
+            comments: true,
+          },
+        },
+      },
+    });
+
+    return this.formatPost(updatedPost, userId);
+  }
+
+  /**
+   * Deletes a post with cleanup.
+   */
+  static async deletePost(postId: number, userId: number) {
+    const prisma = getPrisma();
+
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+    });
+
+    if (!post) {
+      throw new CustomError('Post not found', 404);
+    }
+
+    if (post.userId !== userId) {
+      throw new CustomError('You can only delete your own posts', 403);
+    }
+
+    // Delete associated media from Cloudinary
+    if (post.mediaUrls && post.mediaUrls.length > 0) {
+      for (const url of post.mediaUrls) {
+        try {
+          const publicId = this.extractPublicIdFromUrl(url);
+          if (publicId) {
+            await CloudinaryService.deleteFile(publicId);
+          }
+        } catch (error) {
+          console.error('Failed to delete media:', error);
+        }
+      }
+    }
+
+    await prisma.post.delete({
+      where: { id: postId },
+    });
+
+    return { success: true, message: 'Post deleted successfully' };
+  }
+
+  /**
+   * Helper to extract public ID from Cloudinary URL.
+   */
+  private static extractPublicIdFromUrl(url: string): string | null {
+    try {
+      const urlParts = url.split('/');
+      const uploadIndex = urlParts.indexOf('upload');
+      
+      if (uploadIndex !== -1 && uploadIndex + 2 < urlParts.length) {
+        const relevantParts = urlParts.slice(uploadIndex + 2);
+        const lastPart = relevantParts[relevantParts.length - 1];
+        const lastPartWithoutExt = lastPart.split('.')[0];
+        relevantParts[relevantParts.length - 1] = lastPartWithoutExt;
+        
+        return relevantParts.join('/');
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Failed to extract public ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Gets posts by a specific user.
+   */
+  static async getUserPosts(
+    userId: number,
+    page: number = 1,
+    limit: number = 10,
+    currentUserId?: number
+  ) {
+    const prisma = getPrisma();
+    const skip = (page - 1) * limit;
+
+    if (currentUserId) {
+      const block = await prisma.block.findFirst({
+        where: {
+          OR: [
+            { blockerId: userId, blockedId: currentUserId },
+            { blockerId: currentUserId, blockedId: userId },
+          ],
+        },
+      });
+
+      if (block) {
+        return {
+          posts: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            totalPages: 0,
+            hasMore: false,
+          },
+        };
+      }
+    }
+
+    const where: Prisma.PostWhereInput = {
+      userId,
+      visibility: 'public',
+    };
+
+    const [posts, total] = await Promise.all([
+      prisma.post.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              isVerified: true,
+              profile: {
+                select: {
+                  avatarUrl: true,
+                },
+              },
+            },
+          },
+          likes: currentUserId ? {
+            where: { userId: currentUserId },
+            select: { id: true },
+          } : false,
+          _count: {
+            select: {
+              likes: true,
+              comments: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.post.count({ where }),
+    ]);
+
+    return {
+      posts: posts.map(post => this.formatPost(post, currentUserId)),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasMore: page * limit < total,
+      },
+    };
+  }
+
+  /**
+   * Helper method to format post response.
+   */
+  private static formatPost(post: any, userId?: number) {
+    const likes = post.likes || [];
+    const likedByMe = userId ? likes.some((like: any) => like.userId === userId) : false;
+
+    return {
+      id: post.id,
+      content: post.content,
+      mediaUrls: post.mediaUrls,
+      mediaTypes: post.mediaTypes,
+      visibility: post.visibility,
+      createdAt: post.createdAt,
+      updatedAt: post.updatedAt,
+      author: post.user ? {
+        id: post.user.id,
+        name: post.user.name,
+        isVerified: post.user.isVerified,
+        avatarUrl: post.user.profile?.avatarUrl || null,
+      } : null,
+      likesCount: post._count?.likes || 0,
+      commentsCount: post._count?.comments || 0,
+      likedByMe,
+    };
+  }
+}

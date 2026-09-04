@@ -1,111 +1,135 @@
-import { getPool } from '../config/database';
-import { AuthService } from '../auth/auth.service';
+import { getPrisma } from '../config/database';
+import { CustomError } from '../middleware/errorHandler';
+import { Prisma } from '@prisma/client';
 
 export interface UpdateProfileDto {
   name?: string;
   bio?: string;
   location?: string;
   occupation?: string;
-  avatar_url?: string;
+  avatarUrl?: string;
 }
 
 export class ProfileService {
   /**
-   * Retrieves the full profile of a user.
+   * Gets user profile.
    */
   static async getProfile(userId: number) {
-    return AuthService.getProfile(userId);
-  }
+    const prisma = getPrisma();
+    
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        profile: true,
+        interests: {
+          include: {
+            interest: true,
+          },
+        },
+      },
+    });
 
-  /**
-   * Updates user profile details (name in users table, bio/location/etc. in profiles table).
-   */
-  static async updateProfile(userId: number, data: UpdateProfileDto) {
-    const pool = getPool();
-
-    // 1. Update name if provided
-    if (data.name && data.name.trim()) {
-      await pool.query('UPDATE users SET name = ? WHERE id = ?', [data.name.trim(), userId]);
+    if (!user) {
+      throw new CustomError('User not found', 404);
     }
-
-    // 2. Update profile table fields
-    const updates: string[] = [];
-    const values: any[] = [];
-
-    if (data.bio !== undefined) {
-      updates.push('bio = ?');
-      values.push(data.bio);
-    }
-    if (data.location !== undefined) {
-      updates.push('location = ?');
-      values.push(data.location);
-    }
-    if (data.occupation !== undefined) {
-      updates.push('occupation = ?');
-      values.push(data.occupation);
-    }
-    if (data.avatar_url !== undefined) {
-      updates.push('avatar_url = ?');
-      values.push(data.avatar_url);
-    }
-
-    if (updates.length > 0) {
-      values.push(userId);
-      await pool.query(
-        `UPDATE profiles SET ${updates.join(', ')} WHERE user_id = ?`,
-        values
-      );
-    }
-
-    return AuthService.getProfile(userId);
-  }
-
-  /**
-   * Gets a public profile of another user respecting privacy settings.
-   */
-  static async getPublicProfile(targetUserId: number) {
-    const pool = getPool();
-    const [rows]: any = await pool.query(
-      `SELECT u.id, u.name, u.is_verified, u.created_at,
-              p.bio, p.avatar_url, p.location, p.occupation,
-              p.privacy_profile_visibility, p.privacy_allow_messages, p.privacy_show_online_status
-       FROM users u
-       LEFT JOIN profiles p ON u.id = p.user_id
-       WHERE u.id = ?`,
-      [targetUserId]
-    );
-
-    if (rows.length === 0) {
-      const error: any = new Error('Member profile not found');
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const member = rows[0];
-
-    // Fetch member's interests
-    const [interests]: any = await pool.query(
-      `SELECT i.id, i.name, i.category, i.icon
-       FROM user_interests ui
-       JOIN interests i ON ui.interest_id = i.id
-       WHERE ui.user_id = ?`,
-      [targetUserId]
-    );
 
     return {
-      id: member.id,
-      name: member.name,
-      bio: member.bio,
-      avatar_url: member.avatar_url,
-      location: member.location,
-      occupation: member.occupation,
-      is_verified: Boolean(member.is_verified),
-      joinedDate: member.created_at,
-      interests: interests || [],
-      privacy: {
-        profileVisibility: member.privacy_profile_visibility,
-        allowMessages: member.privacy_allow_messages,
-      },
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      bio: user.profile?.bio,
+      avatarUrl: user.profile?.avatarUrl,
+      location: user.profile?.location,
+      occupation: user.profile?.occupation,
+      isEmailVerified: user.isEmailVerified,
+      isVerified: user.isVerified,
+      createdAt: user.createdAt,
+      interests: user.interests.map(ui => ui.interest),
     };
   }
+
+  /**
+   * Updates user profile.
+   */
+  static async updateProfile(userId: number, data: UpdateProfileDto) {
+    const prisma = getPrisma();
+
+    await prisma.$transaction(async (tx) => {
+      // Update name in users table
+      if (data.name?.trim()) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { name: data.name.trim() },
+        });
+      }
+
+      // Update profile fields
+      const profileData: Prisma.ProfileUpdateInput = {};
+      
+      if (data.bio !== undefined) profileData.bio = data.bio;
+      if (data.location !== undefined) profileData.location = data.location;
+      if (data.occupation !== undefined) profileData.occupation = data.occupation;
+      if (data.avatarUrl !== undefined) profileData.avatarUrl = data.avatarUrl;
+
+      if (Object.keys(profileData).length > 0) {
+        await tx.profile.upsert({
+          where: { userId },
+          create: {
+            userId,
+            ...profileData,
+          },
+          update: profileData,
+        });
+      }
+    });
+
+    return this.getProfile(userId);
+  }
+
+  /**
+   * Gets public profile.
+   */
+static async getPublicProfile(targetUserId: number) {
+  const prisma = getPrisma();
+
+  const user = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    include: {
+      profile: true,
+      interests: {
+        include: {
+          interest: true,
+        },
+      },
+    },
+  });
+
+  if (!user) {
+    throw new CustomError('Member profile not found', 404);
+  }
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    bio: user.profile?.bio || null,
+    avatar_url: user.profile?.avatarUrl || null,
+    location: user.profile?.location || null,
+    occupation: user.profile?.occupation || null,
+    is_verified: user.isVerified,
+    createdAt: user.createdAt,
+    interests: user.interests.map(ui => ({
+      id: ui.interest.id,
+      name: ui.interest.name,
+      category: ui.interest.category,
+      icon: ui.interest.icon,
+    })),
+    privacy: {
+      profileVisibility: user.profile?.privacyProfileVisibility || 'members_only',
+      allowMessages: user.profile?.privacyAllowMessages || 'all_members',
+    },
+  };
+}
 }

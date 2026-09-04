@@ -1,163 +1,142 @@
 import bcrypt from 'bcryptjs';
-import { getPool } from '../config/database';
-
-export interface NotificationSettingsDto {
-  push_notifications?: boolean;
-  email_notifications?: boolean;
-  chat_notifications?: boolean;
-  community_updates?: boolean;
-}
-
-export interface PrivacySettingsDto {
-  privacy_profile_visibility?: 'public' | 'members_only' | 'connections_only';
-  privacy_allow_messages?: 'all_members' | 'connections_only';
-  privacy_show_online_status?: boolean;
-}
+import { getPrisma } from '../config/database';
+import { CustomError } from '../middleware/errorHandler';
+import { Prisma } from '@prisma/client';
 
 export class SettingsService {
   /**
-   * Retrieves all user settings (notifications and privacy).
+   * Gets all user settings.
    */
   static async getSettings(userId: number) {
-    const pool = getPool();
+    const prisma = getPrisma();
 
-    // 1. Get Notification Settings
-    const [notifRows]: any = await pool.query(
-      'SELECT push_notifications, email_notifications, chat_notifications, community_updates FROM user_settings WHERE user_id = ?',
-      [userId]
-    );
-
-    // If not exists, insert default
-    let notifications = notifRows[0];
-    if (!notifications) {
-      await pool.query('INSERT IGNORE INTO user_settings (user_id) VALUES (?)', [userId]);
-      notifications = {
-        push_notifications: true,
-        email_notifications: true,
-        chat_notifications: true,
-        community_updates: true,
-      };
-    }
-
-    // 2. Get Privacy Settings from profile
-    const [profileRows]: any = await pool.query(
-      'SELECT privacy_profile_visibility, privacy_allow_messages, privacy_show_online_status FROM profiles WHERE user_id = ?',
-      [userId]
-    );
-
-    const privacy = profileRows[0] || {
-      privacy_profile_visibility: 'members_only',
-      privacy_allow_messages: 'all_members',
-      privacy_show_online_status: true,
-    };
+    const [settings, profile] = await Promise.all([
+      prisma.userSettings.findUnique({
+        where: { userId },
+      }),
+      prisma.profile.findUnique({
+        where: { userId },
+      }),
+    ]);
 
     return {
       notifications: {
-        pushNotifications: Boolean(notifications.push_notifications),
-        emailNotifications: Boolean(notifications.email_notifications),
-        chatNotifications: Boolean(notifications.chat_notifications),
-        communityUpdates: Boolean(notifications.community_updates),
+        pushNotifications: settings?.pushNotifications ?? true,
+        emailNotifications: settings?.emailNotifications ?? true,
+        chatNotifications: settings?.chatNotifications ?? true,
+        communityUpdates: settings?.communityUpdates ?? true,
       },
       privacy: {
-        profileVisibility: privacy.privacy_profile_visibility || 'members_only',
-        allowMessages: privacy.privacy_allow_messages || 'all_members',
-        showOnlineStatus: Boolean(privacy.privacy_show_online_status),
+        profileVisibility: profile?.privacyProfileVisibility || 'members_only',
+        allowMessages: profile?.privacyAllowMessages || 'all_members',
+        showOnlineStatus: profile?.privacyShowOnlineStatus ?? true,
       },
     };
   }
 
   /**
-   * Updates notification preferences.
+   * Updates notification settings.
+   * Accepts both camelCase and snake_case keys.
    */
-  static async updateNotifications(userId: number, data: NotificationSettingsDto) {
-    const pool = getPool();
-    const updates: string[] = [];
-    const values: any[] = [];
+  static async updateNotifications(userId: number, data: any) {
+    const prisma = getPrisma();
 
-    if (data.push_notifications !== undefined) {
-      updates.push('push_notifications = ?');
-      values.push(data.push_notifications);
+    // Build update data with correct Prisma field names
+    const updateData: Prisma.UserSettingsUpdateInput = {};
+
+    if (data.pushNotifications !== undefined || data.push_notifications !== undefined) {
+      updateData.pushNotifications = data.pushNotifications ?? data.push_notifications;
     }
-    if (data.email_notifications !== undefined) {
-      updates.push('email_notifications = ?');
-      values.push(data.email_notifications);
+    if (data.emailNotifications !== undefined || data.email_notifications !== undefined) {
+      updateData.emailNotifications = data.emailNotifications ?? data.email_notifications;
     }
-    if (data.chat_notifications !== undefined) {
-      updates.push('chat_notifications = ?');
-      values.push(data.chat_notifications);
+    if (data.chatNotifications !== undefined || data.chat_notifications !== undefined) {
+      updateData.chatNotifications = data.chatNotifications ?? data.chat_notifications;
     }
-    if (data.community_updates !== undefined) {
-      updates.push('community_updates = ?');
-      values.push(data.community_updates);
+    if (data.communityUpdates !== undefined || data.community_updates !== undefined) {
+      updateData.communityUpdates = data.communityUpdates ?? data.community_updates;
     }
 
-    if (updates.length > 0) {
-      values.push(userId);
-      await pool.query(
-        `UPDATE user_settings SET ${updates.join(', ')} WHERE user_id = ?`,
-        values
-      );
-    }
+    await prisma.userSettings.upsert({
+      where: { userId },
+      create: {
+        userId,
+        pushNotifications: updateData.pushNotifications ?? true,
+        emailNotifications: updateData.emailNotifications ?? true,
+        chatNotifications: updateData.chatNotifications ?? true,
+        communityUpdates: updateData.communityUpdates ?? true,
+      },
+      update: updateData,
+    });
 
     return this.getSettings(userId);
   }
 
   /**
-   * Updates privacy controls.
+   * Updates privacy settings.
+   * Accepts both camelCase and snake_case keys.
    */
-  static async updatePrivacy(userId: number, data: PrivacySettingsDto) {
-    const pool = getPool();
-    const updates: string[] = [];
-    const values: any[] = [];
+  static async updatePrivacy(userId: number, data: any) {
+    const prisma = getPrisma();
 
-    if (data.privacy_profile_visibility !== undefined) {
-      updates.push('privacy_profile_visibility = ?');
-      values.push(data.privacy_profile_visibility);
+    // Build update data with correct Prisma field names
+    const updateData: Prisma.ProfileUpdateInput = {};
+
+    // Map to correct Prisma field names with 'privacy' prefix
+    const profileVisibility = data.profileVisibility ?? data.privacy_profile_visibility;
+    const allowMessages = data.allowMessages ?? data.privacy_allow_messages;
+    const showOnlineStatus = data.showOnlineStatus ?? data.privacy_show_online_status;
+
+    if (profileVisibility !== undefined) {
+      updateData.privacyProfileVisibility = profileVisibility;
     }
-    if (data.privacy_allow_messages !== undefined) {
-      updates.push('privacy_allow_messages = ?');
-      values.push(data.privacy_allow_messages);
+    if (allowMessages !== undefined) {
+      updateData.privacyAllowMessages = allowMessages;
     }
-    if (data.privacy_show_online_status !== undefined) {
-      updates.push('privacy_show_online_status = ?');
-      values.push(data.privacy_show_online_status);
+    if (showOnlineStatus !== undefined) {
+      updateData.privacyShowOnlineStatus = showOnlineStatus;
     }
 
-    if (updates.length > 0) {
-      values.push(userId);
-      await pool.query(
-        `UPDATE profiles SET ${updates.join(', ')} WHERE user_id = ?`,
-        values
-      );
-    }
+    await prisma.profile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        privacyProfileVisibility: (profileVisibility as any) || 'members_only',
+        privacyAllowMessages: (allowMessages as any) || 'all_members',
+        privacyShowOnlineStatus: showOnlineStatus ?? true,
+      },
+      update: updateData,
+    });
 
     return this.getSettings(userId);
   }
 
   /**
-   * Securely changes user password.
+   * Changes user password.
    */
   static async changePassword(userId: number, currentPassword: string, newPassword: string) {
-    const pool = getPool();
+    const prisma = getPrisma();
 
-    const [rows]: any = await pool.query('SELECT password_hash FROM users WHERE id = ?', [userId]);
-    if (rows.length === 0) {
-      const error: any = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new CustomError('User not found', 404);
     }
 
-    const isMatch = await bcrypt.compare(currentPassword, rows[0].password_hash);
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!isMatch) {
-      const error: any = new Error('Incorrect current password');
-      error.statusCode = 400;
-      throw error;
+      throw new CustomError('Incorrect current password', 400);
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const newHash = await bcrypt.hash(newPassword, salt);
+    const newHash = await bcrypt.hash(newPassword, 10);
 
-    await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, userId]);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: newHash },
+    });
+
     return { success: true, message: 'Password updated successfully' };
   }
 }

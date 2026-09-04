@@ -1,24 +1,10 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
-import { getPool } from '../config/database';
+import { getPrisma } from '../config/database';
 import { env } from '../config/env';
-
-export interface UserRow extends RowDataPacket {
-  id: number;
-  name: string;
-  email: string;
-  phone: string | null;
-  password_hash: string;
-  is_email_verified: boolean;
-  is_phone_verified: boolean;
-  is_verified: boolean;
-  created_at: string;
-  bio?: string | null;
-  avatar_url?: string | null;
-  location?: string | null;
-  occupation?: string | null;
-}
+import { CustomError } from '../middleware/errorHandler';
+import { Prisma, User, Profile } from '@prisma/client';
+import { emailService } from '../services/email.service';
 
 export interface SanitizedUser {
   id: number;
@@ -26,278 +12,324 @@ export interface SanitizedUser {
   email: string;
   phone?: string | null;
   bio?: string | null;
-  avatar_url?: string | null;
+  avatarUrl?: string | null;
   location?: string | null;
   occupation?: string | null;
-  is_email_verified: boolean;
-  is_verified: boolean;
-  createdAt: string;
+  isEmailVerified: boolean;
+  isVerified: boolean;
+  createdAt: Date;
+}
+
+interface UserWithProfile extends User {
+  profile?: Profile | null;
 }
 
 export class AuthService {
   /**
-   * Generates and stores a 6-digit OTP in MySQL.
+   * Generates and stores a 6-digit OTP.
    */
-  static async generateOtp(email: string, purpose: 'registration' | 'login' | 'verification' = 'registration'): Promise<string> {
-    const pool = getPool();
-    const normalizedEmail = email.trim().toLowerCase();
+static async generateOtp(
+  email: string,
+  purpose: 'registration' | 'login' | 'verification' = 'registration'
+): Promise<string> {
+  const prisma = getPrisma();
+  const normalizedEmail = email.trim().toLowerCase();
 
-    // 6-digit OTP
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Invalidate previous active OTPs for this email & purpose
-    await pool.query(
-      'UPDATE otps SET is_used = TRUE WHERE email = ? AND purpose = ?',
-      [normalizedEmail, purpose]
-    );
+// Invalidate previous active OTPs
+  await prisma.otp.updateMany({
+    where: {
+      email: normalizedEmail,
+      purpose,
+      isUsed: false,
+    },
+    data: { isUsed: true },
+  });
 
-    // Save with 10-minute expiry
-    await pool.query(
-      'INSERT INTO otps (email, otp_code, purpose, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))',
-      [normalizedEmail, otpCode, purpose]
-    );
+  // Save new OTP
+  await prisma.otp.create({
+    data: {
+      email: normalizedEmail,
+      otpCode,
+      purpose,
+      expiresAt: new Date(Date.now() + env.otp.expiryMinutes * 60 * 1000),
+    },
+  });
 
-    console.log(`📱 [SakhiSphere OTP] Code for ${normalizedEmail} (${purpose}): ${otpCode}`);
+  // Always log OTP in development
+  if (env.nodeEnv === 'development') {
+    console.log(`📱 [DEV MODE] OTP for ${normalizedEmail}: ${otpCode}`);
+  }
+
+    // Send OTP via email
+    if (env.nodeEnv === 'production') {
+      await emailService.sendOtpEmail(normalizedEmail, otpCode, purpose);
+    } else {
+      console.log(`📱 [DEV] OTP for ${normalizedEmail}: ${otpCode}`);
+      // Still send email in development if SMTP is configured
+      if (env.smtp.user && env.smtp.user !== 'your-email@gmail.com') {
+        await emailService.sendOtpEmail(normalizedEmail, otpCode, purpose);
+      }
+    }
+
+    if (env.nodeEnv === 'development') {
+      console.log(`📱 [SakhiSphere OTP] Email: ${normalizedEmail}, Purpose: ${purpose}, Code: ${otpCode}`);
+    }
+
     return otpCode;
   }
 
   /**
-   * Registers a new user, creates their profile and default settings, and triggers OTP.
+   * Registers a new user with profile and settings.
    */
-  static async register(name: string, email: string, password: string): Promise<{ email: string; otpDev: string }> {
-    const pool = getPool();
+  static async register(
+    name: string,
+    email: string,
+    password: string
+  ): Promise<{ email: string; otpDev: string }> {
+    const prisma = getPrisma();
     const normalizedEmail = email.trim().toLowerCase();
+    const trimmedName = name.trim();
 
-    // Check if user already exists
-    const [existing] = await pool.query<UserRow[]>(
-      'SELECT id, is_email_verified FROM users WHERE email = ?',
-      [normalizedEmail]
-    );
+    // Check if user exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
 
-    if (existing.length > 0) {
-      if (existing[0].is_email_verified) {
-        const error: any = new Error('An account with this email already exists. Please log in.');
-        error.statusCode = 409;
-        throw error;
+    if (existingUser) {
+      if (existingUser.isEmailVerified) {
+        throw new CustomError('An account with this email already exists. Please log in.', 409);
       } else {
-        // User registered but hasn't verified OTP yet — update password and resend OTP
-        const salt = await bcrypt.genSalt(10);
-        const passwordHash = await bcrypt.hash(password, salt);
-        await pool.query(
-          'UPDATE users SET name = ?, password_hash = ? WHERE id = ?',
-          [name.trim(), passwordHash, existing[0].id]
-        );
+        // Update existing unverified user
+        const passwordHash = await bcrypt.hash(password, 10);
+        await prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            name: trimmedName,
+            passwordHash,
+          },
+        });
         const otpDev = await this.generateOtp(normalizedEmail, 'registration');
         return { email: normalizedEmail, otpDev };
       }
     }
 
-    // Hash password with bcryptjs
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
 
-    // 1. Insert user
-    const [userResult] = await pool.query<ResultSetHeader>(
-      'INSERT INTO users (name, email, password_hash, is_email_verified) VALUES (?, ?, ?, FALSE)',
-      [name.trim(), normalizedEmail, passwordHash]
-    );
-    const userId = userResult.insertId;
+    // Create user with profile and settings in transaction
+    await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          name: trimmedName,
+          email: normalizedEmail,
+          passwordHash,
+          isEmailVerified: false,
+          profile: {
+            create: {
+              bio: 'New member of SakhiSphere community 🌸',
+              location: '',
+              occupation: '',
+            },
+          },
+          settings: {
+            create: {},
+          },
+        },
+      });
 
-    // 2. Create default profile row
-    await pool.query(
-      'INSERT INTO profiles (user_id, bio, location, occupation) VALUES (?, ?, ?, ?)',
-      [userId, 'New member of SakhiSphere community 🌸', '', '']
-    );
+      return user;
+    });
 
-    // 3. Create default user settings row
-    await pool.query(
-      'INSERT INTO user_settings (user_id) VALUES (?)',
-      [userId]
-    );
-
-    // 4. Generate initial OTP
     const otpDev = await this.generateOtp(normalizedEmail, 'registration');
-
     return { email: normalizedEmail, otpDev };
   }
 
   /**
-   * Verifies an OTP code and completes registration / authentication.
+   * Verifies OTP and completes registration.
    */
-  static async verifyOtp(email: string, code: string): Promise<{ token: string; user: SanitizedUser }> {
-    const pool = getPool();
+  static async verifyOtp(
+    email: string,
+    code: string
+  ): Promise<{ token: string; user: SanitizedUser }> {
+    const prisma = getPrisma();
     const normalizedEmail = email.trim().toLowerCase();
+    const trimmedCode = code.trim();
 
-    // Check OTP validity
-    const [otpRows]: any = await pool.query(
-      'SELECT id FROM otps WHERE email = ? AND otp_code = ? AND is_used = FALSE AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
-      [normalizedEmail, code.trim()]
-    );
+    // Validate OTP format
+    if (!/^\d{6}$/.test(trimmedCode)) {
+      throw new CustomError('Verification code must be 6 digits', 400);
+    }
 
-    if (otpRows.length === 0) {
-      const error: any = new Error('Invalid or expired verification code. Please check or request a new code.');
-      error.statusCode = 400;
-      throw error;
+    // Find valid OTP
+    const otp = await prisma.otp.findFirst({
+      where: {
+        email: normalizedEmail,
+        otpCode: trimmedCode,
+        isUsed: false,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { id: 'desc' },
+    });
+
+    if (!otp) {
+      throw new CustomError('Invalid or expired verification code', 400);
     }
 
     // Mark OTP as used
-    await pool.query('UPDATE otps SET is_used = TRUE WHERE id = ?', [otpRows[0].id]);
-
-    // Mark user as email verified
-    await pool.query('UPDATE users SET is_email_verified = TRUE WHERE email = ?', [normalizedEmail]);
-
-    // Fetch user details
-    const [rows] = await pool.query<UserRow[]>(
-      `SELECT u.id, u.name, u.email, u.phone, u.is_email_verified, u.is_verified, u.created_at,
-              p.bio, p.avatar_url, p.location, p.occupation
-       FROM users u
-       LEFT JOIN profiles p ON u.id = p.user_id
-       WHERE u.email = ?`,
-      [normalizedEmail]
-    );
-
-    if (rows.length === 0) {
-      const error: any = new Error('User record not found');
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const userRow = rows[0];
-
-    // Generate JWT token
-    const token = jwt.sign({ id: userRow.id, email: userRow.email }, env.jwt.secret, {
-      expiresIn: '7d',
+    await prisma.otp.update({
+      where: { id: otp.id },
+      data: { isUsed: true },
     });
 
-    const user: SanitizedUser = {
-      id: userRow.id,
-      name: userRow.name,
-      email: userRow.email,
-      phone: userRow.phone,
-      bio: userRow.bio,
-      avatar_url: userRow.avatar_url,
-      location: userRow.location,
-      occupation: userRow.occupation,
-      is_email_verified: Boolean(userRow.is_email_verified),
-      is_verified: Boolean(userRow.is_verified),
-      createdAt: userRow.created_at,
-    };
+    // Mark user as verified
+    const user = await prisma.user.update({
+      where: { email: normalizedEmail },
+      data: { isEmailVerified: true },
+      include: {
+        profile: true,
+      },
+    });
 
-    return { token, user };
+    // Generate JWT
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      env.jwt.secret,
+      { expiresIn: env.jwt.expiresIn } as jwt.SignOptions
+    );
+
+    return {
+      token,
+      user: this.sanitizeUser(user),
+    };
   }
 
   /**
-   * Resends OTP for an email.
+   * Resends OTP.
    */
-  static async resendOtp(email: string, purpose: 'registration' | 'login' | 'verification' = 'registration'): Promise<{ email: string; otpDev: string }> {
+  static async resendOtp(
+    email: string,
+    purpose: 'registration' | 'login' | 'verification' = 'registration'
+  ): Promise<{ email: string; otpDev: string }> {
+    const prisma = getPrisma();
     const normalizedEmail = email.trim().toLowerCase();
+
+    if (purpose === 'login') {
+      const user = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+
+      if (!user) {
+        throw new CustomError('No account found with this email', 404);
+      }
+    }
+
     const otpDev = await this.generateOtp(normalizedEmail, purpose);
     return { email: normalizedEmail, otpDev };
   }
 
   /**
-   * Authenticates user credentials and returns full user profile + JWT.
+   * Authenticates user.
    */
-  static async login(email: string, password: string): Promise<{ token: string; user: SanitizedUser }> {
-    const pool = getPool();
+  static async login(
+    email: string,
+    password: string
+  ): Promise<{ token: string; user: SanitizedUser }> {
+    const prisma = getPrisma();
     const normalizedEmail = email.trim().toLowerCase();
 
-    const [rows] = await pool.query<UserRow[]>(
-      `SELECT u.id, u.name, u.email, u.phone, u.password_hash, u.is_email_verified, u.is_verified, u.created_at,
-              p.bio, p.avatar_url, p.location, p.occupation
-       FROM users u
-       LEFT JOIN profiles p ON u.id = p.user_id
-       WHERE u.email = ?`,
-      [normalizedEmail]
-    );
-
-    if (rows.length === 0) {
-      const error: any = new Error('Invalid email or password');
-      error.statusCode = 401;
-      throw error;
-    }
-
-    const userRow = rows[0];
-
-    const isMatch = await bcrypt.compare(password, userRow.password_hash);
-    if (!isMatch) {
-      const error: any = new Error('Invalid email or password');
-      error.statusCode = 401;
-      throw error;
-    }
-
-    // Generate JWT token
-    const token = jwt.sign({ id: userRow.id, email: userRow.email }, env.jwt.secret, {
-      expiresIn: '7d',
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      include: {
+        profile: true,
+      },
     });
 
-    const user: SanitizedUser = {
-      id: userRow.id,
-      name: userRow.name,
-      email: userRow.email,
-      phone: userRow.phone,
-      bio: userRow.bio,
-      avatar_url: userRow.avatar_url,
-      location: userRow.location,
-      occupation: userRow.occupation,
-      is_email_verified: Boolean(userRow.is_email_verified),
-      is_verified: Boolean(userRow.is_verified),
-      createdAt: userRow.created_at,
-    };
-
-    return { token, user };
-  }
-
-  /**
-   * Fetches full user profile by ID including interests.
-   */
-  static async getProfile(userId: number): Promise<any> {
-    const pool = getPool();
-    const [rows] = await pool.query<UserRow[]>(
-      `SELECT u.id, u.name, u.email, u.phone, u.is_email_verified, u.is_verified, u.created_at,
-              p.bio, p.avatar_url, p.location, p.occupation, p.privacy_profile_visibility,
-              p.privacy_allow_messages, p.privacy_show_online_status
-       FROM users u
-       LEFT JOIN profiles p ON u.id = p.user_id
-       WHERE u.id = ?`,
-      [userId]
-    );
-
-    if (rows.length === 0) {
-      const error: any = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+    if (!user) {
+      throw new CustomError('Invalid email or password', 401);
     }
 
-    const userRow = rows[0];
+    if (!user.isEmailVerified) {
+      throw new CustomError('Please verify your email before logging in', 403);
+    }
 
-    // Fetch user interests
-    const [interests]: any = await pool.query(
-      `SELECT i.id, i.name, i.category, i.icon
-       FROM user_interests ui
-       JOIN interests i ON ui.interest_id = i.id
-       WHERE ui.user_id = ?`,
-      [userId]
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
+      throw new CustomError('Invalid email or password', 401);
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      env.jwt.secret,
+      { expiresIn: env.jwt.expiresIn } as jwt.SignOptions
     );
 
     return {
-      id: userRow.id,
-      name: userRow.name,
-      email: userRow.email,
-      phone: userRow.phone,
-      bio: userRow.bio,
-      avatar_url: userRow.avatar_url,
-      location: userRow.location,
-      occupation: userRow.occupation,
-      is_email_verified: Boolean(userRow.is_email_verified),
-      is_verified: Boolean(userRow.is_verified),
-      createdAt: userRow.created_at,
-      interests: interests || [],
-      privacy: {
-        profileVisibility: userRow.privacy_profile_visibility || 'members_only',
-        allowMessages: userRow.privacy_allow_messages || 'all_members',
-        showOnlineStatus: Boolean(userRow.privacy_show_online_status),
+      token,
+      user: this.sanitizeUser(user),
+    };
+  }
+
+  /**
+   * Gets full profile with interests.
+   */
+  static async getProfile(userId: number): Promise<any> {
+    const prisma = getPrisma();
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        profile: true,
+        interests: {
+          include: {
+            interest: true,
+          },
+        },
       },
+    });
+
+    if (!user) {
+      throw new CustomError('User not found', 404);
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      bio: user.profile?.bio,
+      avatarUrl: user.profile?.avatarUrl,
+      location: user.profile?.location,
+      occupation: user.profile?.occupation,
+      isEmailVerified: user.isEmailVerified,
+      isVerified: user.isVerified,
+      createdAt: user.createdAt,
+      interests: user.interests.map(ui => ui.interest),
+      privacy: {
+        profileVisibility: user.profile?.privacyProfileVisibility || 'members_only',
+        allowMessages: user.profile?.privacyAllowMessages || 'all_members',
+        showOnlineStatus: user.profile?.privacyShowOnlineStatus ?? true,
+      },
+    };
+  }
+
+  /**
+   * Sanitizes user object.
+   */
+  private static sanitizeUser(user: UserWithProfile): SanitizedUser {
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      bio: user.profile?.bio,
+      avatarUrl: user.profile?.avatarUrl,
+      location: user.profile?.location,
+      occupation: user.profile?.occupation,
+      isEmailVerified: user.isEmailVerified,
+      isVerified: user.isVerified,
+      createdAt: user.createdAt,
     };
   }
 }

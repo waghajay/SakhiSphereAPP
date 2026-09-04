@@ -53,6 +53,7 @@ export interface Interest {
 export interface UserProfile extends User {
   interests: Interest[];
   privacy: PrivacySettings;
+  is_verified?: boolean;
 }
 
 export interface UpdateProfilePayload {
@@ -67,8 +68,8 @@ export interface UpdateProfilePayload {
 
 export interface VerificationRequest {
   id: number;
-  status: 'pending' | 'approved' | 'rejected';
-  verification_type: 'id_proof' | 'student_id' | 'work_id' | 'social_profile';
+  status: "pending" | "approved" | "rejected";
+  verification_type: "id_proof" | "student_id" | "work_id" | "social_profile";
   document_note: string | null;
   document_url: string | null;
   admin_notes: string | null;
@@ -84,7 +85,7 @@ export interface VerificationStatusResponse {
 }
 
 export interface SubmitVerificationPayload {
-  verification_type: 'id_proof' | 'student_id' | 'work_id' | 'social_profile';
+  verification_type: "id_proof" | "student_id" | "work_id" | "social_profile";
   document_note?: string;
   document_url?: string;
   autoApprove?: boolean;
@@ -100,8 +101,8 @@ export interface NotificationSettings {
 }
 
 export interface PrivacySettings {
-  profileVisibility: 'public' | 'members_only' | 'connections_only';
-  allowMessages: 'all_members' | 'connections_only';
+  profileVisibility: "public" | "members_only" | "connections_only";
+  allowMessages: "all_members" | "connections_only";
   showOnlineStatus: boolean;
 }
 
@@ -115,4 +116,86 @@ export interface UserSettingsResponse {
 export interface ApiError {
   message: string;
   errors?: Record<string, string[]>;
+}
+
+export interface Post {
+  id: number;
+  content: string;
+  mediaUrls: string[];
+  mediaTypes: ("image" | "video")[];
+  visibility: "public" | "members_only" | "connections_only";
+  createdAt: string;
+  updatedAt: string;
+  author: {
+    id: number;
+    name: string;
+    isVerified: boolean;
+    avatarUrl: string | null;
+  };
+  likesCount: number;
+  commentsCount: number;
+  likedByMe: boolean;
+}
+
+export interface CreatePostPayload {
+  content: string;
+  mediaUrls?: string[];
+  mediaTypes?: ("image" | "video")[];
+  visibility?: "public" | "members_only" | "connections_only";
+}
+
+export interface FeedResponse {
+  posts: Post[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasMore: boolean;
+  };
+}
+
+// Add comment types
+
+export interface Comment {
+  id: number;
+  postId: number;
+  parentId: number | null;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  author: {
+    id: number;
+    name: string;
+    isVerified: boolean;
+    avatarUrl: string | null;
+  };
+  repliesCount: number;
+}
+
+export interface CreateCommentPayload {
+  content: string;
+  parentId?: number;
+}
+
+// Add to existing types
+export interface MutualConnection {
+  id: number;
+  name: string;
+  isVerified: boolean;
+  avatarUrl: string | null;
+}
+
+export interface FollowCounts {
+  followersCount: number;
+  followingCount: number;
+  postsCount: number;
+}
+
+export interface PostAuthor {
+  id: number;
+  name: string;
+  isVerified: boolean;
+  avatarUrl: string | null;
+  bio?: string | null;
 }

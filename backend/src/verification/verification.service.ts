@@ -1,10 +1,14 @@
-import { getPool } from '../config/database';
+import { getPrisma } from '../config/database';
+import { CustomError } from '../middleware/errorHandler';
+import { CloudinaryService } from '../services/cloudinary.service';
+import { emailService } from '../services/email.service';
+import fs from 'fs';
 
 export interface SubmitVerificationDto {
-  verification_type: 'id_proof' | 'student_id' | 'work_id' | 'social_profile';
-  document_note?: string;
-  document_url?: string;
-  autoApprove?: boolean; // For college demo / testing
+  verificationType: 'id_proof' | 'student_id' | 'work_id' | 'social_profile';
+  documentNote?: string;
+  filePath?: string;
+  autoApprove?: boolean;
 }
 
 export class VerificationService {
@@ -12,94 +16,212 @@ export class VerificationService {
    * Retrieves user verification status and submission history.
    */
   static async getStatus(userId: number) {
-    const pool = getPool();
+    const prisma = getPrisma();
 
-    // Check is_verified flag on user
-    const [userRows]: any = await pool.query(
-      'SELECT id, name, email, is_verified, is_email_verified, is_phone_verified FROM users WHERE id = ?',
-      [userId]
-    );
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        verificationRequests: {
+          orderBy: { submittedAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
 
-    if (userRows.length === 0) {
-      const error: any = new Error('User not found');
-      error.statusCode = 404;
-      throw error;
+    if (!user) {
+      throw new CustomError('User not found', 404);
     }
 
-    const user = userRows[0];
-
-    // Get latest request
-    const [requestRows]: any = await pool.query(
-      `SELECT id, status, verification_type, document_note, document_url, admin_notes, submitted_at, reviewed_at
-       FROM verification_requests
-       WHERE user_id = ?
-       ORDER BY submitted_at DESC LIMIT 1`,
-      [userId]
-    );
-
-    const latestRequest = requestRows.length > 0 ? requestRows[0] : null;
-
     return {
-      isVerified: Boolean(user.is_verified),
-      isEmailVerified: Boolean(user.is_email_verified),
-      isPhoneVerified: Boolean(user.is_phone_verified),
-      latestRequest,
+      isVerified: user.isVerified,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified,
+      latestRequest: user.verificationRequests[0] || null,
     };
   }
 
   /**
-   * Submits a new verification request.
+   * Submits a new verification request with document upload.
    */
   static async submitRequest(userId: number, data: SubmitVerificationDto) {
-    const pool = getPool();
+    const prisma = getPrisma();
 
-    // Check if already verified
-    const [userRows]: any = await pool.query('SELECT is_verified FROM users WHERE id = ?', [userId]);
-    if (userRows[0]?.is_verified) {
-      const error: any = new Error('Your profile is already verified with a SakhiSphere Verified Badge! 🌸');
-      error.statusCode = 400;
-      throw error;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new CustomError('User not found', 404);
     }
 
-    // Check if already has a pending request
-    const [pendingRows]: any = await pool.query(
-      "SELECT id FROM verification_requests WHERE user_id = ? AND status = 'pending'",
-      [userId]
-    );
-
-    if (pendingRows.length > 0) {
-      const error: any = new Error('You already have a verification request pending review.');
-      error.statusCode = 409;
-      throw error;
+    if (user.isVerified) {
+      throw new CustomError('Your profile is already verified! 🌸', 400);
     }
 
-    // If autoApprove flag is set (useful for demonstration in college project)
-    const initialStatus = data.autoApprove ? 'approved' : 'pending';
-
-    const [result]: any = await pool.query(
-      `INSERT INTO verification_requests (user_id, status, verification_type, document_note, document_url, reviewed_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
+    // Check for pending requests
+    const pendingRequest = await prisma.verificationRequest.findFirst({
+      where: {
         userId,
-        initialStatus,
-        data.verification_type,
-        data.document_note || 'Self-submitted profile verification',
-        data.document_url || null,
-        data.autoApprove ? new Date() : null,
-      ]
-    );
+        status: 'pending',
+      },
+    });
 
-    if (data.autoApprove) {
-      await pool.query('UPDATE users SET is_verified = TRUE WHERE id = ?', [userId]);
+    if (pendingRequest) {
+      throw new CustomError('You already have a verification request pending review.', 409);
+    }
+
+    // Upload document to Cloudinary if file path provided
+    let documentUrl: string | null = null;
+    let documentPublicId: string | null = null;
+
+    if (data.filePath) {
+      try {
+        const uploadResult = await CloudinaryService.uploadImage(
+          data.filePath,
+          `sakhisphere/verification/user_${userId}`
+        );
+        documentUrl = uploadResult.url;
+        documentPublicId = uploadResult.publicId;
+
+        // Delete local file after upload
+        if (fs.existsSync(data.filePath)) {
+          fs.unlinkSync(data.filePath);
+        }
+      } catch (error) {
+        console.error('Image upload failed:', error);
+        // Don't throw - still create request without image
+      }
+    }
+
+    // Create verification request (always pending)
+    const request = await prisma.verificationRequest.create({
+      data: {
+        userId,
+        status: 'pending',
+        verificationType: data.verificationType,
+        documentNote: data.documentNote || null,
+        documentUrl,
+        documentPublicId,
+      },
+    });
+
+    return {
+      requestId: request.id,
+      status: 'pending',
+      message: 'Verification request submitted successfully. Our team will review your documents within 24-48 hours.',
+      documentUrl,
+    };
+  }
+
+  /**
+   * Admin reviews verification request.
+   */
+  static async reviewRequest(
+    requestId: number,
+    adminId: number,
+    status: 'approved' | 'rejected',
+    adminNotes?: string
+  ) {
+    const prisma = getPrisma();
+
+    const request = await prisma.verificationRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!request) {
+      throw new CustomError('Verification request not found', 404);
+    }
+
+    if (request.status !== 'pending') {
+      throw new CustomError('This request has already been reviewed', 400);
+    }
+
+    // Update request
+    await prisma.verificationRequest.update({
+      where: { id: requestId },
+      data: {
+        status,
+        adminNotes: adminNotes || null,
+        reviewedAt: new Date(),
+        reviewedBy: adminId,
+      },
+    });
+
+    // Update user verification status
+    if (status === 'approved') {
+      await prisma.user.update({
+        where: { id: request.userId },
+        data: { isVerified: true },
+      });
+
+      // Send approval email
+      try {
+        await emailService.sendVerificationApprovedEmail(
+          request.user.email,
+          request.user.name
+        );
+      } catch (error) {
+        console.error('Failed to send approval email:', error);
+      }
+    } else {
+      // Send rejection email
+      try {
+        await emailService.sendVerificationRejectedEmail(
+          request.user.email,
+          request.user.name,
+          adminNotes || 'The submitted document did not meet our verification requirements.'
+        );
+      } catch (error) {
+        console.error('Failed to send rejection email:', error);
+      }
     }
 
     return {
-      requestId: result.insertId,
-      status: initialStatus,
-      isVerified: Boolean(data.autoApprove),
-      message: data.autoApprove
-        ? 'Profile verified successfully! Verified badge awarded 🌸'
-        : 'Verification request submitted. Our safety team will review it shortly.',
+      requestId,
+      status,
+      message: status === 'approved'
+        ? 'Verification request approved successfully'
+        : 'Verification request rejected',
+    };
+  }
+
+  /**
+   * Gets all verification requests (for admin).
+   */
+  static async getAllRequests(page: number = 1, limit: number = 20) {
+    const prisma = getPrisma();
+    const skip = (page - 1) * limit;
+
+    const [requests, total] = await Promise.all([
+      prisma.verificationRequest.findMany({
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              isVerified: true,
+            },
+          },
+        },
+        orderBy: { submittedAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.verificationRequest.count(),
+    ]);
+
+    return {
+      requests,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 }

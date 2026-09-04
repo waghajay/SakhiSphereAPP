@@ -1,8 +1,8 @@
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 
-// Keep the splash screen visible while we check auth state
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -11,24 +11,35 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      {/* Auth screens — no header, no tab bar */}
-      <Stack.Screen name="(auth)" />
+    <>
+      <StatusBar style="dark" />
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* Auth Screens */}
+        <Stack.Screen name="(auth)" />
 
-      {/* Main app screens — tab bar lives here */}
-      <Stack.Screen name="(tabs)" />
+        {/* Main Tabs */}
+        <Stack.Screen name="(tabs)" />
 
-      {/* Profile & User System Modals / Screens */}
-      <Stack.Screen
-        name="edit-profile"
-        options={{
-          presentation: 'modal',
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen name="interests" options={{ headerShown: false }} />
-      <Stack.Screen name="verification" options={{ headerShown: false }} />
-      <Stack.Screen name="settings" options={{ headerShown: false }} />
-    </Stack>
+        {/* Profile & Settings */}
+        <Stack.Screen name="edit-profile" options={{ presentation: "modal" }} />
+        <Stack.Screen name="interests" />
+        <Stack.Screen name="verification" />
+        <Stack.Screen name="settings" />
+
+        {/* Post Screens */}
+        <Stack.Screen name="create-post" options={{ presentation: "modal" }} />
+        <Stack.Screen
+          name="edit-post/[id]"
+          options={{ presentation: "modal" }}
+        />
+        <Stack.Screen name="post/[id]" />
+        <Stack.Screen name="liked-posts" />
+
+        {/* User Screens */}
+        <Stack.Screen name="user/[id]" />
+        <Stack.Screen name="followers/[userId]" />
+        <Stack.Screen name="following/[userId]" />
+      </Stack>
+    </>
   );
 }
