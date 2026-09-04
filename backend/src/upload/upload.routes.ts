@@ -1,4 +1,3 @@
-// src/upload/upload.routes.ts - Fixed version
 import { Router } from 'express';
 import { UploadController } from './upload.controller';
 import { authenticateToken } from '../middleware/auth';
@@ -8,7 +7,6 @@ import fs from 'fs';
 
 const router = Router();
 
-// Configure multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../../uploads/temp');
@@ -24,7 +22,6 @@ const storage = multer.diskStorage({
   },
 });
 
-// Image upload
 const imageUpload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -40,22 +37,18 @@ const imageUpload = multer({
 
 const videoUpload = multer({
   storage,
-  limits: { 
-    fileSize: 1024 * 1024 * 1024, // 1024MB max
-  },
+  limits: { fileSize: 1024 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid video type. Allowed: MP4, WEBM, MOV') as any);
+      cb(new Error('Invalid video type') as any);
     }
   },
 });
 
-// Routes
 router.post('/image', authenticateToken, imageUpload.single('image'), UploadController.uploadImage);
-router.post('/chunked', authenticateToken, UploadController.uploadChunked);
 router.post('/video', authenticateToken, videoUpload.single('video'), UploadController.uploadVideo);
 router.delete('/:publicId', authenticateToken, UploadController.deleteFile);
 

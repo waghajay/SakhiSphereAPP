@@ -8,9 +8,6 @@ export interface CloudinaryUploadResult {
   format?: string;
 }
 
-/**
- * Uploads a file using XMLHttpRequest (supports streaming, no memory issues).
- */
 export async function uploadToCloudinary(
   fileUri: string,
   fileType: "image" | "video",
@@ -20,17 +17,18 @@ export async function uploadToCloudinary(
   const token = await getAuthToken();
 
   console.log(`Uploading ${fileType}: ${fileUri}`);
+  console.log(`Mime type: ${mimeType}`);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
 
-    const endpoint =
-      fileType === "image"
-        ? `${API_BASE_URL}/upload/image`
-        : `${API_BASE_URL}/upload/video`;
+    const endpoint = `${API_BASE_URL}/upload/${fileType}`;
 
     xhr.open("POST", endpoint);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    // Set timeout to 5 minutes for large files
+    xhr.timeout = 300000;
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -40,17 +38,22 @@ export async function uploadToCloudinary(
     };
 
     xhr.onload = () => {
+      console.log(`Upload response status: ${xhr.status}`);
+      console.log(`Upload response: ${xhr.responseText}`);
+
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const data = JSON.parse(xhr.responseText);
-          if (data.success) {
-            console.log("Upload successful:", data.data);
+          if (data.success && data.data && data.data.url) {
+            console.log("✅ Upload successful:", data.data);
             resolve(data.data as CloudinaryUploadResult);
           } else {
-            reject(new Error(data.message || "Upload failed"));
+            reject(
+              new Error(data.message || "Upload failed - no URL returned"),
+            );
           }
         } catch (error) {
-          reject(new Error("Failed to parse response"));
+          reject(new Error("Failed to parse upload response"));
         }
       } else {
         try {
@@ -78,7 +81,6 @@ export async function uploadToCloudinary(
     const formData = new FormData();
     const fileName = fileUri.split("/").pop() || `upload_${Date.now()}`;
 
-    // For React Native, use the file URI directly
     formData.append(fileType, {
       uri: fileUri,
       name: fileName,
@@ -87,14 +89,11 @@ export async function uploadToCloudinary(
 
     formData.append("folder", folder);
 
-    // Send request
+    console.log("Sending FormData...");
     xhr.send(formData);
   });
 }
 
-/**
- * Uploads multiple files.
- */
 export async function uploadMultipleToCloudinary(
   files: { uri: string; type: "image" | "video"; mimeType: string }[],
   folder: string = "sakhisphere/posts",

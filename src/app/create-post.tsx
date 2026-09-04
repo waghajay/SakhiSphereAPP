@@ -1,4 +1,3 @@
-// Update create-post.tsx - Complete fixed version
 import { uploadToCloudinary } from "@/services/api/cloudinary";
 import { createPost } from "@/services/api/posts";
 import * as ImagePicker from "expo-image-picker";
@@ -71,20 +70,13 @@ export default function CreatePostScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        allowsEditing: true, // Allow trimming
-        quality: 0.3, // Very low quality for smaller file size
-        videoMaxDuration: 15, // Limit to 15 seconds
+        allowsEditing: true,
+        quality: 0.5,
+        videoMaxDuration: 30,
       });
 
       if (!result.canceled) {
         const asset = result.assets[0];
-
-        // Check file size if available
-        if (asset.fileSize && asset.fileSize > 1024 * 1024 * 1024) {
-          Alert.alert("Video Too Large", "Please select a video under 1GB.");
-          return;
-        }
-
         console.log("Video selected:", asset.uri, asset.mimeType);
 
         setMediaFiles([
@@ -134,10 +126,11 @@ export default function CreatePostScreen() {
             "sakhisphere/posts",
           );
 
+          console.log(`Upload result for ${media.type} ${i + 1}:`, result);
+
           if (result.url) {
             uploadedUrls.push(result.url);
             uploadedTypes.push(media.type);
-            console.log(`Uploaded ${media.type} ${i + 1}:`, result.url);
           }
         } catch (uploadError) {
           console.error(
@@ -147,27 +140,23 @@ export default function CreatePostScreen() {
         }
       }
 
-      if (uploadedUrls.length === 0 && content.trim()) {
-        // Text-only post
-        const post = await createPost({
-          content: content.trim(),
-          mediaUrls: [],
-          mediaTypes: [],
-          visibility,
-        });
-      } else {
-        const post = await createPost({
-          content: content.trim(),
-          mediaUrls: uploadedUrls,
-          mediaTypes: uploadedTypes,
-          visibility,
-        });
-      }
+      console.log("Uploaded URLs:", uploadedUrls);
+      console.log("Uploaded types:", uploadedTypes);
+
+      const post = await createPost({
+        content: content.trim(),
+        mediaUrls: uploadedUrls,
+        mediaTypes: uploadedTypes,
+        visibility,
+      });
+
+      console.log("Post created:", post);
 
       Alert.alert("Success", "Your post has been created!", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error: any) {
+      console.error("Post creation error:", error);
       Alert.alert("Error", error.message || "Failed to create post");
     } finally {
       setSubmitting(false);
@@ -182,7 +171,6 @@ export default function CreatePostScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
             <Text style={styles.cancelText}>Cancel</Text>
@@ -208,7 +196,6 @@ export default function CreatePostScreen() {
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Content Input */}
           <TextInput
             style={styles.contentInput}
             placeholder="What's on your mind?"
@@ -222,7 +209,6 @@ export default function CreatePostScreen() {
           />
           <Text style={styles.charCount}>{content.length}/5000</Text>
 
-          {/* Upload Progress */}
           {uploadProgress && (
             <View style={styles.progressContainer}>
               <ActivityIndicator color="#7C3AED" size="small" />
@@ -230,7 +216,6 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Media Preview */}
           {mediaFiles.length > 0 && (
             <View style={styles.mediaPreviewContainer}>
               {mediaFiles.map((media, index) => (
@@ -255,7 +240,6 @@ export default function CreatePostScreen() {
             </View>
           )}
 
-          {/* Media Buttons */}
           <View style={styles.mediaButtons}>
             <TouchableOpacity style={styles.mediaButton} onPress={pickImages}>
               <Text style={styles.mediaButtonIcon}>📸</Text>
@@ -267,7 +251,6 @@ export default function CreatePostScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Visibility Selection */}
           <View style={styles.visibilitySection}>
             <Text style={styles.visibilityTitle}>Who can see this post?</Text>
             <View style={styles.visibilityOptions}>
