@@ -11,6 +11,7 @@ export interface User {
   phone?: string | null;
   bio?: string | null;
   avatar_url?: string | null;
+  avatarUrl?: string | null;
   location?: string | null;
   occupation?: string | null;
   is_email_verified?: boolean;
@@ -25,7 +26,6 @@ export interface AuthResponse {
 
 export interface RegisterResult {
   email: string;
-  otpDev?: string;
 }
 
 export interface RegisterPayload {
@@ -54,6 +54,8 @@ export interface UserProfile extends User {
   interests: Interest[];
   privacy: PrivacySettings;
   is_verified?: boolean;
+  avatarUrl?: string | null;
+  avatar_url?: string | null;
 }
 
 export interface UpdateProfilePayload {
@@ -87,8 +89,9 @@ export interface VerificationStatusResponse {
 export interface SubmitVerificationPayload {
   verification_type: "id_proof" | "student_id" | "work_id" | "social_profile";
   document_note?: string;
-  document_url?: string;
-  autoApprove?: boolean;
+  document_base64?: string;
+  document_mime_type?: string;
+  document_file_name?: string;
 }
 
 // ─── Settings & Privacy ──────────────────────────────────────────────────────
@@ -111,12 +114,7 @@ export interface UserSettingsResponse {
   privacy: PrivacySettings;
 }
 
-// ─── API ─────────────────────────────────────────────────────────────────────
-
-export interface ApiError {
-  message: string;
-  errors?: Record<string, string[]>;
-}
+// ─── Posts ───────────────────────────────────────────────────────────────────
 
 export interface Post {
   id: number;
@@ -146,6 +144,9 @@ export interface CreatePostPayload {
 
 export interface FeedResponse {
   posts: Post[];
+  feedType?: string;
+  feedExplanation?: string;
+  hasFollows?: boolean;
   pagination: {
     page: number;
     limit: number;
@@ -155,7 +156,7 @@ export interface FeedResponse {
   };
 }
 
-// Add comment types
+// ─── Comments ────────────────────────────────────────────────────────────────
 
 export interface Comment {
   id: number;
@@ -178,7 +179,8 @@ export interface CreateCommentPayload {
   parentId?: number;
 }
 
-// Add to existing types
+// ─── Follow & Social ─────────────────────────────────────────────────────────
+
 export interface MutualConnection {
   id: number;
   name: string;
@@ -200,16 +202,9 @@ export interface PostAuthor {
   bio?: string | null;
 }
 
-// In src/types/index.ts - Update FeedResponse
-export interface FeedResponse {
-  posts: Post[];
-  feedType?: string;
-  feedExplanation?: string;
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-    hasMore: boolean;
-  };
+// ─── API ─────────────────────────────────────────────────────────────────────
+
+export interface ApiError {
+  message: string;
+  errors?: Record<string, string[]>;
 }

@@ -3,13 +3,14 @@ import { getFollowers, toggleFollow } from "@/services/api/follow";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -55,7 +56,6 @@ export default function FollowersScreen() {
   const handleFollowToggle = async (targetId: number) => {
     try {
       await toggleFollow(targetId);
-      // Update the user in the list
       setUsers((prev) =>
         prev.map((user) =>
           user.id === targetId
@@ -74,11 +74,15 @@ export default function FollowersScreen() {
         style={styles.userInfo}
         onPress={() => router.push(`/user/${item.id}` as any)}
       >
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {item.name.charAt(0).toUpperCase()}
-          </Text>
-        </View>
+        {item.avatarUrl ? (
+          <Image source={{ uri: item.avatarUrl }} style={styles.avatarImage} />
+        ) : (
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {item.name.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           <View style={styles.nameRow}>
             <Text style={styles.userName}>{item.name}</Text>
@@ -225,6 +229,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3E8FF",
     alignItems: "center",
     justifyContent: "center",
+  },
+  avatarImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
   avatarText: {
     fontSize: 18,

@@ -1,10 +1,10 @@
+// src/upload/upload.controller.ts - Complete fixed version
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { CloudinaryService } from '../services/cloudinary.service';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import sharp from 'sharp';
 
 // Configure multer for file upload
 const storage = multer.diskStorage({
@@ -17,28 +17,30 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    const extension = path.extname(file.originalname);
+    cb(null, file.fieldname + '-' + uniqueSuffix + extension);
   },
 });
 
+// Separate multer instances for image and video
 const imageUpload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB for images
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid image type. Allowed: JPG, PNG, WEBP, GIF') as any);
+      cb(new Error('Invalid image type') as any);
     }
   },
 });
 
 const videoUpload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB for videos
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+    const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -47,35 +49,10 @@ const videoUpload = multer({
   },
 });
 
-// Helper function to compress image (outside class)
-async function compressImage(filePath: string): Promise<string | null> {
-  try {
-    const compressedPath = filePath.replace(/\.(jpg|jpeg|png)$/i, '_compressed.jpg');
-    
-    await sharp(filePath)
-      .resize(1080, 1080, {
-        fit: 'inside',
-        withoutEnlargement: true,
-      })
-      .jpeg({ quality: 80 })
-      .toFile(compressedPath);
-
-    // Delete original file
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-
-    return compressedPath;
-  } catch (error) {
-    console.error('Image compression failed:', error);
-    return null;
-  }
-}
-
 export class UploadController {
   /**
    * POST /api/upload/image
-   * Uploads and compresses an image.
+   * Uploads an image to Cloudinary.
    */
   static async uploadImage(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -89,11 +66,12 @@ export class UploadController {
         return;
       }
 
-      // Compress image before upload
-      const compressedPath = await compressImage(req.file.path);
-      
-      const folder = req.body.folder || `sakhisphere/users/${req.user.id}`;
-      const result = await CloudinaryService.uploadImage(compressedPath || req.file.path, folder);
+      console.log(`📤 Uploading image: ${req.file.originalname}`);
+
+      const folder = req.body.folder || `sakhisphere/posts/user_${req.user.id}`;
+      const result = await CloudinaryService.uploadImage(req.file.path, folder);
+
+      console.log('✅ Image upload result:', result);
 
       res.status(201).json({
         success: true,
@@ -101,13 +79,82 @@ export class UploadController {
         data: result,
       });
     } catch (error) {
+      console.error('❌ Image upload error:', error);
       next(error);
     }
   }
 
   /**
+ * POST /api/upload/chunked
+ * Uploads file in chunks.
+ */
+static async uploadChunked(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user?.id) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const { chunks, mimeType, folder, fileName, fileType } = req.body;
+
+    if (!chunks || !Array.isArray(chunks) || chunks.length === 0) {
+      res.status(400).json({ success: false, message: 'chunks array is required' });
+      return;
+    }
+
+    console.log(`📤 Uploading chunked file: ${chunks.length} chunks, type: ${mimeType}`);
+
+    // Combine chunks
+    const fullBase64 = chunks.join('');
+    const buffer = Buffer.from(fullBase64, 'base64');
+
+    // Save to temp file
+    const uploadDir = path.join(__dirname, '../../uploads/temp');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const extension = mimeType === 'video/mp4' ? '.mp4' : 
+                     mimeType === 'video/webm' ? '.webm' :
+                     mimeType === 'video/quicktime' ? '.mov' :
+                     mimeType === 'image/png' ? '.png' :
+                     mimeType === 'image/webp' ? '.webp' : '.jpg';
+
+    const finalFileName = fileName || `chunked_${Date.now()}${extension}`;
+    const filePath = path.join(uploadDir, finalFileName);
+
+    fs.writeFileSync(filePath, buffer);
+
+    console.log(`📁 Saved file: ${finalFileName}, Size: ${(buffer.length / (1024 * 1024)).toFixed(2)}MB`);
+
+    const uploadFolder = folder || `sakhisphere/posts/user_${req.user.id}`;
+    
+    let result;
+    if (mimeType.startsWith('image/')) {
+      result = await CloudinaryService.uploadImage(filePath, uploadFolder);
+    } else if (mimeType.startsWith('video/')) {
+      result = await CloudinaryService.uploadVideo(filePath, uploadFolder);
+    } else {
+      result = await CloudinaryService.uploadDocument(filePath, uploadFolder);
+    }
+
+    console.log('✅ Chunked upload result:', result);
+
+    res.status(201).json({
+      success: true,
+      message: 'File uploaded successfully',
+      data: result,
+    });
+  } catch (error) {
+    console.error('❌ Chunked upload error:', error);
+    next(error);
+  }
+}
+
+
+  /**
    * POST /api/upload/video
-   * Uploads a video with thumbnail generation.
+   * Uploads a video to Cloudinary.
    */
   static async uploadVideo(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -121,8 +168,12 @@ export class UploadController {
         return;
       }
 
-      const folder = req.body.folder || `sakhisphere/users/${req.user.id}`;
+      console.log(`📤 Uploading video: ${req.file.originalname}`);
+
+      const folder = req.body.folder || `sakhisphere/posts/user_${req.user.id}`;
       const result = await CloudinaryService.uploadVideo(req.file.path, folder);
+
+      console.log('✅ Video upload result:', result);
 
       res.status(201).json({
         success: true,
@@ -130,63 +181,7 @@ export class UploadController {
         data: result,
       });
     } catch (error) {
-      next(error);
-    }
-  }
-
-  /**
-   * POST /api/upload/base64
-   * Uploads a base64 encoded image with compression.
-   */
-  static async uploadBase64(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      if (!req.user?.id) {
-        res.status(401).json({ success: false, message: 'Unauthorized' });
-        return;
-      }
-
-      const { base64, mimeType, folder } = req.body;
-
-      if (!base64 || !mimeType) {
-        res.status(400).json({ success: false, message: 'base64 and mimeType are required' });
-        return;
-      }
-
-      // Save base64 to temp file
-      const uploadDir = path.join(__dirname, '../../uploads/temp');
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-
-      const extension = mimeType === 'image/png' ? '.png' : 
-                       mimeType === 'image/webp' ? '.webp' : 
-                       mimeType === 'image/gif' ? '.gif' : '.jpg';
-      
-      const fileName = `base64_${Date.now()}${extension}`;
-      const filePath = path.join(uploadDir, fileName);
-
-      const buffer = Buffer.from(base64, 'base64');
-      fs.writeFileSync(filePath, buffer);
-
-      const uploadFolder = folder || `sakhisphere/users/${req.user.id}`;
-      
-      let result;
-      if (mimeType.startsWith('image/')) {
-        // Compress image first
-        const compressedPath = await compressImage(filePath);
-        result = await CloudinaryService.uploadImage(compressedPath || filePath, uploadFolder);
-      } else if (mimeType.startsWith('video/')) {
-        result = await CloudinaryService.uploadVideo(filePath, uploadFolder);
-      } else {
-        result = await CloudinaryService.uploadDocument(filePath, uploadFolder);
-      }
-
-      res.status(201).json({
-        success: true,
-        message: 'File uploaded successfully',
-        data: result,
-      });
-    } catch (error) {
+      console.error('❌ Video upload error:', error);
       next(error);
     }
   }

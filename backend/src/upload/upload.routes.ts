@@ -1,3 +1,4 @@
+// src/upload/upload.routes.ts - Fixed version
 import { Router } from 'express';
 import { UploadController } from './upload.controller';
 import { authenticateToken } from '../middleware/auth';
@@ -18,10 +19,12 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    const extension = path.extname(file.originalname);
+    cb(null, file.fieldname + '-' + uniqueSuffix + extension);
   },
 });
 
+// Image upload
 const imageUpload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -35,11 +38,12 @@ const imageUpload = multer({
   },
 });
 
+// Video upload
 const videoUpload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+    const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -50,8 +54,8 @@ const videoUpload = multer({
 
 // Routes
 router.post('/image', authenticateToken, imageUpload.single('image'), UploadController.uploadImage);
+router.post('/chunked', authenticateToken, UploadController.uploadChunked);
 router.post('/video', authenticateToken, videoUpload.single('video'), UploadController.uploadVideo);
-router.post('/base64', authenticateToken, UploadController.uploadBase64);
 router.delete('/:publicId', authenticateToken, UploadController.deleteFile);
 
 export default router;

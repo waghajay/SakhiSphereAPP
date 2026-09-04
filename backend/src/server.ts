@@ -16,6 +16,7 @@ import followRoutes from './follow/follow.routes';
 import searchRoutes from './search/search.routes';
 import uploadRoutes from './upload/upload.routes';
 import { errorHandler } from './middleware/errorHandler';
+import path from 'path';
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Rate limiting
 const authLimiter = rateLimit({
@@ -41,8 +43,8 @@ const apiLimiter = rateLimit({
 });
 
 // Body parsing
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '1000mb' })); // Increased for video base64
+app.use(express.urlencoded({ extended: true, limit: '1000mb' }));
 
 // Apply rate limiting
 app.use('/api/auth', authLimiter);

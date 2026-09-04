@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { router } from 'expo-router';
+import { register as registerApi } from "@/services/api/auth";
+import { router } from "expo-router";
+import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,34 +11,32 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { register as registerApi } from '@/services/api/auth';
-import { saveAuthToken, saveUserData } from '@/services/storage/token';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function RegisterScreen() {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleRegister = async () => {
-    setErrorMessage('');
+    setErrorMessage("");
 
     if (!name.trim() || !email.trim() || !password.trim()) {
-      setErrorMessage('Please fill in all required fields.');
+      setErrorMessage("Please fill in all required fields.");
       return;
     }
 
     if (password.length < 6) {
-      setErrorMessage('Password must be at least 6 characters.');
+      setErrorMessage("Password must be at least 6 characters.");
       return;
     }
 
     if (password !== confirmPassword) {
-      setErrorMessage('Passwords do not match.');
+      setErrorMessage("Passwords do not match.");
       return;
     }
 
@@ -51,12 +49,15 @@ export default function RegisterScreen() {
       });
 
       // Navigate to OTP verification screen
+      // Only email is passed, NOT OTP
       router.push({
-        pathname: '/(auth)/verify-otp',
-        params: { email: response.email, otpDev: response.otpDev || '' },
+        pathname: "/(auth)/verify-otp",
+        params: { email: response.email },
       });
     } catch (error: any) {
-      setErrorMessage(error.message || 'Registration failed. Please try again.');
+      setErrorMessage(
+        error.message || "Registration failed. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -65,10 +66,13 @@ export default function RegisterScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
@@ -79,7 +83,9 @@ export default function RegisterScreen() {
           {/* Form Content */}
           <View style={styles.content}>
             <Text style={styles.title}>Create account</Text>
-            <Text style={styles.subtitle}>Join a safe and empowering community of women</Text>
+            <Text style={styles.subtitle}>
+              Join a safe and empowering community of women
+            </Text>
 
             {errorMessage ? (
               <View style={styles.errorBox}>
@@ -153,7 +159,7 @@ export default function RegisterScreen() {
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>Already have an account? </Text>
-              <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
+              <TouchableOpacity onPress={() => router.push("/(auth)/login")}>
                 <Text style={styles.footerLink}>Sign in</Text>
               </TouchableOpacity>
             </View>
@@ -167,7 +173,7 @@ export default function RegisterScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
   },
   scrollContent: {
     paddingBottom: 40,
@@ -179,8 +185,8 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontSize: 16,
-    color: '#7C3AED',
-    fontWeight: '600',
+    color: "#7C3AED",
+    fontWeight: "600",
   },
   content: {
     paddingHorizontal: 24,
@@ -189,73 +195,73 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   subtitle: {
     fontSize: 15,
-    color: '#6B7280',
+    color: "#6B7280",
     marginBottom: 16,
   },
   errorBox: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: "#FEE2E2",
     borderWidth: 1,
-    borderColor: '#FCA5A5',
+    borderColor: "#FCA5A5",
     borderRadius: 10,
     padding: 12,
     marginBottom: 10,
   },
   errorBoxText: {
-    color: '#B91C1C',
+    color: "#B91C1C",
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   form: {
     gap: 14,
   },
   label: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: "600",
+    color: "#374151",
     marginBottom: 6,
   },
   input: {
     borderWidth: 1.5,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 16,
     fontSize: 15,
-    color: '#111827',
-    backgroundColor: '#F9FAFB',
+    color: "#111827",
+    backgroundColor: "#F9FAFB",
   },
   primaryButton: {
-    backgroundColor: '#7C3AED',
+    backgroundColor: "#7C3AED",
     borderRadius: 14,
     paddingVertical: 16,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 10,
   },
   buttonDisabled: {
     opacity: 0.65,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     marginTop: 24,
   },
   footerText: {
-    color: '#6B7280',
+    color: "#6B7280",
     fontSize: 15,
   },
   footerLink: {
-    color: '#7C3AED',
+    color: "#7C3AED",
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

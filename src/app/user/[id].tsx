@@ -22,7 +22,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -324,10 +324,20 @@ export default function UserProfileScreen() {
           <View>
             {/* Profile Header */}
             <View style={styles.profileHeader}>
+              {/* In the profileHeader */}
               <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {profile?.name ? profile.name.charAt(0).toUpperCase() : "🌸"}
-                </Text>
+                {profile?.avatar_url ? (
+                  <Image
+                    source={{ uri: profile.avatar_url }}
+                    style={styles.avatarImage}
+                  />
+                ) : (
+                  <Text style={styles.avatarText}>
+                    {profile?.name
+                      ? profile.name.charAt(0).toUpperCase()
+                      : "🌸"}
+                  </Text>
+                )}
               </View>
 
               <View style={styles.nameRow}>
@@ -817,5 +827,10 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     textAlign: "center",
     marginTop: 8,
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 44,
   },
 });

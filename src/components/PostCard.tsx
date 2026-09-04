@@ -1,14 +1,16 @@
 import type { Post } from "@/types";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
   Image,
+  Linking,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { ImageGallery } from "./ImageGallery";
 import { ShareModal } from "./ShareModal";
@@ -35,11 +37,11 @@ export function PostCard({
   const [previewImages, setPreviewImages] = useState<string[] | null>(null);
   const [initialImageIndex, setInitialImageIndex] = useState(0);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
 
   const handleLike = () => {
     if (onLike) {
       onLike(post.id);
-      // Animate like
       setIsAnimating(true);
       likeScale.setValue(0.5);
       Animated.spring(likeScale, {
@@ -82,6 +84,22 @@ export function PostCard({
     }
   };
 
+  const handleVideoPress = async (url: string) => {
+    console.log("Opening video:", url);
+    try {
+      // Try to open in browser first
+      await WebBrowser.openBrowserAsync(url);
+    } catch (error) {
+      console.error("Failed to open in browser:", error);
+      // Fallback to Linking
+      try {
+        await Linking.openURL(url);
+      } catch (linkError) {
+        console.error("Failed to open video:", linkError);
+      }
+    }
+  };
+
   const formatRelativeTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -96,6 +114,10 @@ export function PostCard({
     return date.toLocaleDateString();
   };
 
+  const isVideo = (index: number): boolean => {
+    return post.mediaTypes?.[index] === "video";
+  };
+
   return (
     <View style={styles.card}>
       {/* Header */}
@@ -105,10 +127,11 @@ export function PostCard({
           onPress={handleAuthorPress}
           activeOpacity={0.7}
         >
-          {post.author.avatarUrl ? (
+          {post.author.avatarUrl && !avatarError ? (
             <Image
               source={{ uri: post.author.avatarUrl }}
               style={styles.avatar}
+              onError={() => setAvatarError(true)}
             />
           ) : (
             <View style={styles.avatarFallback}>
@@ -132,28 +155,55 @@ export function PostCard({
       </View>
 
       {/* Content */}
-      {post.content && <Text style={styles.content}>{post.content}</Text>}
+      {post.content ? <Text style={styles.content}>{post.content}</Text> : null}
 
       {/* Media */}
       {post.mediaUrls && post.mediaUrls.length > 0 && (
         <View style={styles.mediaContainer}>
           {post.mediaUrls.length === 1 ? (
-            <TouchableOpacity
-              onPress={() => handleImagePress(0)}
-              activeOpacity={0.9}
-            >
-              <Image
-                source={{ uri: post.mediaUrls[0] }}
-                style={styles.singleImage}
-                resizeMode="cover"
-              />
-            </TouchableOpacity>
+            isVideo(0) ? (
+              <TouchableOpacity
+                onPress={() => handleVideoPress(post.mediaUrls![0])}
+                activeOpacity={0.9}
+              >
+                <View style={styles.videoContainer}>
+                  <Image
+                    source={{ uri: post.mediaUrls[0] }}
+                    style={styles.singleImage}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.playIconOverlay}>
+                    <Text style={styles.playIcon}>▶️</Text>
+                  </View>
+                  <View style={styles.videoBadge}>
+                    <Text style={styles.videoBadgeText}>VIDEO</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                onPress={() => handleImagePress(0)}
+                activeOpacity={0.9}
+              >
+                <Image
+                  source={{ uri: post.mediaUrls[0] }}
+                  style={styles.singleImage}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            )
           ) : (
             <View style={styles.multiImageContainer}>
               {post.mediaUrls.map((url, index) => (
                 <TouchableOpacity
                   key={index}
-                  onPress={() => handleImagePress(index)}
+                  onPress={() => {
+                    if (isVideo(index)) {
+                      handleVideoPress(url);
+                    } else {
+                      handleImagePress(index);
+                    }
+                  }}
                   activeOpacity={0.9}
                   style={
                     index === 2 && post.mediaUrls!.length === 3
@@ -171,6 +221,11 @@ export function PostCard({
                     ]}
                     resizeMode="cover"
                   />
+                  {isVideo(index) && (
+                    <View style={styles.multiVideoOverlay}>
+                      <Text style={styles.multiPlayIcon}>▶️</Text>
+                    </View>
+                  )}
                   {post.mediaUrls!.length > 2 && index === 1 && (
                     <View style={styles.moreImagesOverlay}>
                       <Text style={styles.moreImagesText}>
@@ -253,6 +308,8 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
   avatarFallback: {
     width: 40,
@@ -295,6 +352,39 @@ const styles = StyleSheet.create({
   mediaContainer: {
     marginBottom: 10,
   },
+  videoContainer: {
+    position: "relative",
+  },
+  playIconOverlay: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginLeft: -25,
+    marginTop: -25,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  playIcon: {
+    fontSize: 24,
+  },
+  videoBadge: {
+    position: "absolute",
+    bottom: 8,
+    left: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  videoBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+  },
   singleImage: {
     width: "100%",
     height: 220,
@@ -316,6 +406,22 @@ const styles = StyleSheet.create({
   fullWidthImage: {
     width: "100%",
     height: 180,
+  },
+  multiVideoOverlay: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginLeft: -20,
+    marginTop: -20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  multiPlayIcon: {
+    fontSize: 20,
   },
   moreImagesOverlay: {
     position: "absolute",

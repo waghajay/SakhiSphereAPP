@@ -218,19 +218,31 @@ export default function HomeScreen() {
             </View>
           ) : null
         }
+        // Update the ListEmptyComponent in home.tsx
+
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📝</Text>
-            <Text style={styles.emptyText}>No posts yet</Text>
+            <Text style={styles.emptyIcon}>🌸</Text>
+            <Text style={styles.emptyText}>Welcome to SakhiSphere!</Text>
             <Text style={styles.emptySubtext}>
-              Create your first post or follow others to see their posts!
+              Start by creating your first post or discover people to follow.
             </Text>
-            <TouchableOpacity
-              style={styles.emptyButton}
-              onPress={() => router.push("/create-post" as any)}
-            >
-              <Text style={styles.emptyButtonText}>Create Post</Text>
-            </TouchableOpacity>
+            <View style={styles.emptyButtons}>
+              <TouchableOpacity
+                style={styles.emptyButton}
+                onPress={() => router.push("/create-post" as any)}
+              >
+                <Text style={styles.emptyButtonText}>📝 Create Post</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.emptyButton, styles.emptyButtonSecondary]}
+                onPress={() => router.push("/(tabs)/discover")}
+              >
+                <Text style={styles.emptyButtonTextSecondary}>
+                  🔍 Discover People
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         }
       />
@@ -451,6 +463,23 @@ const styles = StyleSheet.create({
   },
   emptyButtonText: {
     color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  // Add to styles in home.tsx
+
+  emptyButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+  },
+  emptyButtonSecondary: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#7C3AED",
+  },
+  emptyButtonTextSecondary: {
+    color: "#7C3AED",
     fontSize: 14,
     fontWeight: "600",
   },

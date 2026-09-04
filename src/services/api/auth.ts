@@ -98,7 +98,6 @@ export async function login(payload: LoginPayload): Promise<AuthResponse> {
 /**
  * Get current user profile.
  * GET /api/auth/me
- * Validates the token and returns user data
  */
 export async function getMe(token: string): Promise<User> {
   try {
@@ -113,7 +112,6 @@ export async function getMe(token: string): Promise<User> {
     const data = await response.json();
 
     if (!response.ok || !data.success) {
-      // If token is invalid (401/403), throw specific error
       if (response.status === 401 || response.status === 403) {
         throw new Error("TOKEN_INVALID");
       }

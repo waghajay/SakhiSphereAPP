@@ -1,6 +1,8 @@
 import { getPrisma } from '../config/database';
 import { CustomError } from '../middleware/errorHandler';
 import { Prisma } from '@prisma/client';
+import { CloudinaryService } from '../services/cloudinary.service';
+import fs from 'fs';
 
 export interface UpdateProfileDto {
   name?: string;
@@ -50,7 +52,7 @@ export class ProfileService {
   }
 
   /**
-   * Updates user profile.
+   * Updates user profile including avatar.
    */
   static async updateProfile(userId: number, data: UpdateProfileDto) {
     const prisma = getPrisma();
@@ -88,48 +90,83 @@ export class ProfileService {
   }
 
   /**
-   * Gets public profile.
+   * Uploads profile photo.
    */
-static async getPublicProfile(targetUserId: number) {
-  const prisma = getPrisma();
+  static async uploadProfilePhoto(userId: number, filePath: string) {
+    const prisma = getPrisma();
 
-  const user = await prisma.user.findUnique({
-    where: { id: targetUserId },
-    include: {
-      profile: true,
-      interests: {
-        include: {
-          interest: true,
-        },
+    // Upload to Cloudinary
+    const result = await CloudinaryService.uploadImage(
+      filePath,
+      `sakhisphere/profile_photos/user_${userId}`
+    );
+
+    // Update profile with new avatar URL
+    await prisma.profile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        avatarUrl: result.url,
       },
-    },
-  });
+      update: {
+        avatarUrl: result.url,
+      },
+    });
 
-  if (!user) {
-    throw new CustomError('Member profile not found', 404);
+    // Delete local file after upload
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    return {
+      avatarUrl: result.url,
+      message: 'Profile photo updated successfully',
+    };
   }
 
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    phone: user.phone,
-    bio: user.profile?.bio || null,
-    avatar_url: user.profile?.avatarUrl || null,
-    location: user.profile?.location || null,
-    occupation: user.profile?.occupation || null,
-    is_verified: user.isVerified,
-    createdAt: user.createdAt,
-    interests: user.interests.map(ui => ({
-      id: ui.interest.id,
-      name: ui.interest.name,
-      category: ui.interest.category,
-      icon: ui.interest.icon,
-    })),
-    privacy: {
-      profileVisibility: user.profile?.privacyProfileVisibility || 'members_only',
-      allowMessages: user.profile?.privacyAllowMessages || 'all_members',
-    },
-  };
-}
+  /**
+   * Gets public profile.
+   */
+  static async getPublicProfile(targetUserId: number) {
+    const prisma = getPrisma();
+
+    const user = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      include: {
+        profile: true,
+        interests: {
+          include: {
+            interest: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new CustomError('Member profile not found', 404);
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      bio: user.profile?.bio || null,
+      avatar_url: user.profile?.avatarUrl || null,
+      location: user.profile?.location || null,
+      occupation: user.profile?.occupation || null,
+      is_verified: user.isVerified,
+      createdAt: user.createdAt,
+      interests: user.interests.map(ui => ({
+        id: ui.interest.id,
+        name: ui.interest.name,
+        category: ui.interest.category,
+        icon: ui.interest.icon,
+      })),
+      privacy: {
+        profileVisibility: user.profile?.privacyProfileVisibility || 'members_only',
+        allowMessages: user.profile?.privacyAllowMessages || 'all_members',
+      },
+    };
+  }
 }

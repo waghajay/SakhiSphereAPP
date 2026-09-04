@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   StyleSheet,
   Text,
   TextInput,
@@ -65,11 +66,15 @@ export default function DiscoverScreen() {
       style={styles.userCard}
       onPress={() => router.push(`/user/${item.id}` as any)}
     >
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>
-          {item.name.charAt(0).toUpperCase()}
-        </Text>
-      </View>
+      {item.avatarUrl ? (
+        <Image source={{ uri: item.avatarUrl }} style={styles.avatarImage} />
+      ) : (
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {item.name.charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.userInfo}>
         <View style={styles.nameRow}>
@@ -263,6 +268,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3E8FF",
     alignItems: "center",
     justifyContent: "center",
+  },
+  avatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
   avatarText: {
     fontSize: 20,

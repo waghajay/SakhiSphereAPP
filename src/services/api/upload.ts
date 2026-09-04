@@ -27,6 +27,14 @@ export async function uploadBase64Image(
 ): Promise<UploadResult> {
   const token = await getAuthToken();
 
+  // Check size
+  const sizeInMB = base64.length / (1024 * 1024);
+  console.log(`Uploading ${mimeType}, Size: ${sizeInMB.toFixed(2)}MB`);
+
+  if (sizeInMB > 80) {
+    throw new Error("File too large. Maximum size is 80MB.");
+  }
+
   const payload: UploadBase64Payload = { base64, mimeType, folder };
 
   const response = await fetch(`${API_BASE_URL}/upload/base64`, {
@@ -41,7 +49,7 @@ export async function uploadBase64Image(
   const data = await response.json();
 
   if (!response.ok || !data.success) {
-    throw new Error(data.message || "Failed to upload image");
+    throw new Error(data.message || "Failed to upload file");
   }
 
   return data.data as UploadResult;
@@ -73,6 +81,37 @@ export async function uploadMultipleImages(
   }
 
   return results;
+}
+
+export async function uploadBase64Video(
+  base64: string,
+  mimeType: string,
+  folder?: string,
+): Promise<UploadResult> {
+  const token = await getAuthToken();
+
+  const payload: UploadBase64Payload = { base64, mimeType, folder };
+
+  console.log(
+    `Uploading video: ${mimeType}, Size: ${(base64.length / (1024 * 1024)).toFixed(2)}MB`,
+  );
+
+  const response = await fetch(`${API_BASE_URL}/upload/base64`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Failed to upload video");
+  }
+
+  return data.data as UploadResult;
 }
 
 /**

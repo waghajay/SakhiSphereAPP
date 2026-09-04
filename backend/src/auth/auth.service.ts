@@ -3,7 +3,6 @@ import jwt from 'jsonwebtoken';
 import { getPrisma } from '../config/database';
 import { env } from '../config/env';
 import { CustomError } from '../middleware/errorHandler';
-import { Prisma, User, Profile } from '@prisma/client';
 import { emailService } from '../services/email.service';
 
 export interface SanitizedUser {
@@ -20,74 +19,63 @@ export interface SanitizedUser {
   createdAt: Date;
 }
 
-interface UserWithProfile extends User {
-  profile?: Profile | null;
-}
-
 export class AuthService {
   /**
    * Generates and stores a 6-digit OTP.
    */
-static async generateOtp(
-  email: string,
-  purpose: 'registration' | 'login' | 'verification' = 'registration'
-): Promise<string> {
-  const prisma = getPrisma();
-  const normalizedEmail = email.trim().toLowerCase();
+  static async generateOtp(
+    email: string,
+    purpose: 'registration' | 'login' | 'verification' = 'registration'
+  ): Promise<string> {
+    const prisma = getPrisma();
+    const normalizedEmail = email.trim().toLowerCase();
 
-  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-// Invalidate previous active OTPs
-  await prisma.otp.updateMany({
-    where: {
-      email: normalizedEmail,
-      purpose,
-      isUsed: false,
-    },
-    data: { isUsed: true },
-  });
+    // Invalidate previous active OTPs
+    await prisma.otp.updateMany({
+      where: {
+        email: normalizedEmail,
+        purpose,
+        isUsed: false,
+      },
+      data: { isUsed: true },
+    });
 
-  // Save new OTP
-  await prisma.otp.create({
-    data: {
-      email: normalizedEmail,
-      otpCode,
-      purpose,
-      expiresAt: new Date(Date.now() + env.otp.expiryMinutes * 60 * 1000),
-    },
-  });
-
-  // Always log OTP in development
-  if (env.nodeEnv === 'development') {
-    console.log(`📱 [DEV MODE] OTP for ${normalizedEmail}: ${otpCode}`);
-  }
+    // Save new OTP
+    await prisma.otp.create({
+      data: {
+        email: normalizedEmail,
+        otpCode,
+        purpose,
+        expiresAt: new Date(Date.now() + env.otp.expiryMinutes * 60 * 1000),
+      },
+    });
 
     // Send OTP via email
-    if (env.nodeEnv === 'production') {
+    try {
       await emailService.sendOtpEmail(normalizedEmail, otpCode, purpose);
-    } else {
-      console.log(`📱 [DEV] OTP for ${normalizedEmail}: ${otpCode}`);
-      // Still send email in development if SMTP is configured
-      if (env.smtp.user && env.smtp.user !== 'your-email@gmail.com') {
-        await emailService.sendOtpEmail(normalizedEmail, otpCode, purpose);
-      }
+    } catch (error) {
+      console.error('Failed to send OTP email:', error);
     }
 
+    // Only log in development, never return to frontend
     if (env.nodeEnv === 'development') {
-      console.log(`📱 [SakhiSphere OTP] Email: ${normalizedEmail}, Purpose: ${purpose}, Code: ${otpCode}`);
+      console.log(`📱 [DEV ONLY] OTP for ${normalizedEmail}: ${otpCode}`);
     }
 
     return otpCode;
   }
 
   /**
-   * Registers a new user with profile and settings.
+   * Registers a new user.
+   * IMPORTANT: Does NOT return OTP to frontend.
    */
   static async register(
     name: string,
     email: string,
     password: string
-  ): Promise<{ email: string; otpDev: string }> {
+  ): Promise<{ email: string }> {
     const prisma = getPrisma();
     const normalizedEmail = email.trim().toLowerCase();
     const trimmedName = name.trim();
@@ -110,17 +98,18 @@ static async generateOtp(
             passwordHash,
           },
         });
-        const otpDev = await this.generateOtp(normalizedEmail, 'registration');
-        return { email: normalizedEmail, otpDev };
+        await this.generateOtp(normalizedEmail, 'registration');
+        // Return only email, NOT OTP
+        return { email: normalizedEmail };
       }
     }
 
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Create user with profile and settings in transaction
+    // Create user with profile and settings
     await prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
+      await tx.user.create({
         data: {
           name: trimmedName,
           email: normalizedEmail,
@@ -138,12 +127,12 @@ static async generateOtp(
           },
         },
       });
-
-      return user;
     });
 
-    const otpDev = await this.generateOtp(normalizedEmail, 'registration');
-    return { email: normalizedEmail, otpDev };
+    await this.generateOtp(normalizedEmail, 'registration');
+    
+    // Return only email, NOT OTP
+    return { email: normalizedEmail };
   }
 
   /**
@@ -157,12 +146,10 @@ static async generateOtp(
     const normalizedEmail = email.trim().toLowerCase();
     const trimmedCode = code.trim();
 
-    // Validate OTP format
     if (!/^\d{6}$/.test(trimmedCode)) {
       throw new CustomError('Verification code must be 6 digits', 400);
     }
 
-    // Find valid OTP
     const otp = await prisma.otp.findFirst({
       where: {
         email: normalizedEmail,
@@ -177,13 +164,11 @@ static async generateOtp(
       throw new CustomError('Invalid or expired verification code', 400);
     }
 
-    // Mark OTP as used
     await prisma.otp.update({
       where: { id: otp.id },
       data: { isUsed: true },
     });
 
-    // Mark user as verified
     const user = await prisma.user.update({
       where: { email: normalizedEmail },
       data: { isEmailVerified: true },
@@ -192,7 +177,6 @@ static async generateOtp(
       },
     });
 
-    // Generate JWT
     const token = jwt.sign(
       { id: user.id, email: user.email },
       env.jwt.secret,
@@ -211,7 +195,7 @@ static async generateOtp(
   static async resendOtp(
     email: string,
     purpose: 'registration' | 'login' | 'verification' = 'registration'
-  ): Promise<{ email: string; otpDev: string }> {
+  ): Promise<{ email: string }> {
     const prisma = getPrisma();
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -225,8 +209,8 @@ static async generateOtp(
       }
     }
 
-    const otpDev = await this.generateOtp(normalizedEmail, purpose);
-    return { email: normalizedEmail, otpDev };
+    await this.generateOtp(normalizedEmail, purpose);
+    return { email: normalizedEmail };
   }
 
   /**
@@ -317,7 +301,7 @@ static async generateOtp(
   /**
    * Sanitizes user object.
    */
-  private static sanitizeUser(user: UserWithProfile): SanitizedUser {
+  private static sanitizeUser(user: any): SanitizedUser {
     return {
       id: user.id,
       name: user.name,

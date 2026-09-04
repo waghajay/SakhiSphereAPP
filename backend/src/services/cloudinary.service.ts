@@ -1,12 +1,16 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { env } from '../config/env';
 import fs from 'fs';
+import path from 'path'; // Add this import
 
-cloudinary.config({
-  cloud_name: env.cloudinary.cloudName,
-  api_key: env.cloudinary.apiKey,
-  api_secret: env.cloudinary.apiSecret,
-});
+// Configure Cloudinary only if credentials are available
+if (env.cloudinary.cloudName && env.cloudinary.apiKey && env.cloudinary.apiSecret) {
+  cloudinary.config({
+    cloud_name: env.cloudinary.cloudName,
+    api_key: env.cloudinary.apiKey,
+    api_secret: env.cloudinary.apiSecret,
+  });
+}
 
 export interface UploadResult {
   url: string;
@@ -15,18 +19,24 @@ export interface UploadResult {
   width?: number;
   height?: number;
   format?: string;
-  duration?: number;
 }
 
 export class CloudinaryService {
   /**
-   * Uploads an image to Cloudinary with optimizations.
+   * Check if Cloudinary is configured.
+   */
+  private static isConfigured(): boolean {
+    return Boolean(env.cloudinary.cloudName && env.cloudinary.apiKey && env.cloudinary.apiSecret);
+  }
+
+  /**
+   * Uploads an image to Cloudinary or returns local path.
    */
   static async uploadImage(filePath: string, folder: string = 'sakhisphere/posts'): Promise<UploadResult> {
     try {
-      if (!env.cloudinary.cloudName || !env.cloudinary.apiKey || !env.cloudinary.apiSecret) {
-        console.warn('⚠️ Cloudinary not configured. Storing file locally.');
-        return { url: filePath, publicId: '' };
+      if (!this.isConfigured()) {
+        console.warn('⚠️ Cloudinary not configured. Using local file path.');
+        return { url: `/uploads/${path.basename(filePath)}`, publicId: '' };
       }
 
       const result = await cloudinary.uploader.upload(filePath, {
@@ -53,75 +63,65 @@ export class CloudinaryService {
       };
     } catch (error) {
       console.error('Cloudinary image upload failed:', error);
-      throw new Error('Failed to upload image');
+      return { url: `/uploads/${path.basename(filePath)}`, publicId: '' };
     }
   }
 
   /**
-   * Uploads a video to Cloudinary with thumbnail.
+   * Uploads a video to Cloudinary or returns local path.
    */
   static async uploadVideo(filePath: string, folder: string = 'sakhisphere/posts'): Promise<UploadResult> {
     try {
-      if (!env.cloudinary.cloudName || !env.cloudinary.apiKey || !env.cloudinary.apiSecret) {
-        console.warn('⚠️ Cloudinary not configured. Storing file locally.');
-        return { url: filePath, publicId: '' };
+      if (!this.isConfigured()) {
+        console.warn('⚠️ Cloudinary not configured. Using local file path.');
+        return { url: `/uploads/${path.basename(filePath)}`, publicId: '' };
       }
+
+      console.log(`🎬 Uploading video to Cloudinary: ${filePath}`);
 
       const result = await cloudinary.uploader.upload(filePath, {
         folder,
         resource_type: 'video',
         allowed_formats: ['mp4', 'webm', 'mov'],
-        transformation: [
-          { quality: 'auto:good' },
-          { fetch_format: 'auto' },
-        ],
-        eager: [
-          { format: 'jpg', effect: 'thumbnail', width: 320, height: 240, crop: 'fill' },
-        ],
-        eager_async: true,
+        chunk_size: 6000000, // 6MB chunks
       });
+
+      console.log('✅ Video uploaded to Cloudinary');
 
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
 
-      const thumbnailUrl = result.eager && result.eager.length > 0 
-        ? result.eager[0].secure_url 
-        : undefined;
-
       return {
         url: result.secure_url,
         publicId: result.public_id,
-        thumbnailUrl,
         width: result.width,
         height: result.height,
         format: result.format,
-        duration: result.duration,
       };
     } catch (error) {
-      console.error('Cloudinary video upload failed:', error);
-      throw new Error('Failed to upload video');
+      console.error('❌ Cloudinary video upload failed:', error);
+      // Return local path as fallback
+      const fallbackUrl = `/uploads/${path.basename(filePath)}`;
+      console.log('📁 Using local fallback:', fallbackUrl);
+      return { url: fallbackUrl, publicId: '' };
     }
   }
 
   /**
-   * Uploads a document to Cloudinary.
+   * Uploads a document to Cloudinary or returns local path.
    */
   static async uploadDocument(filePath: string, folder: string = 'sakhisphere/verification'): Promise<UploadResult> {
     try {
-      if (!env.cloudinary.cloudName || !env.cloudinary.apiKey || !env.cloudinary.apiSecret) {
-        console.warn('⚠️ Cloudinary not configured. Storing file locally.');
-        return { url: filePath, publicId: '' };
+      if (!this.isConfigured()) {
+        console.warn('⚠️ Cloudinary not configured. Using local file path.');
+        return { url: `/uploads/${path.basename(filePath)}`, publicId: '' };
       }
 
       const result = await cloudinary.uploader.upload(filePath, {
         folder,
         resource_type: 'auto',
         allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
-        transformation: [
-          { quality: 'auto' },
-          { fetch_format: 'auto' },
-        ],
       });
 
       if (fs.existsSync(filePath)) {
@@ -137,7 +137,7 @@ export class CloudinaryService {
       };
     } catch (error) {
       console.error('Cloudinary document upload failed:', error);
-      throw new Error('Failed to upload document');
+      return { url: `/uploads/${path.basename(filePath)}`, publicId: '' };
     }
   }
 
@@ -146,33 +146,13 @@ export class CloudinaryService {
    */
   static async deleteFile(publicId: string, resourceType: 'image' | 'video' | 'raw' = 'image'): Promise<void> {
     try {
-      if (publicId && env.cloudinary.cloudName) {
+      if (publicId && this.isConfigured()) {
         await cloudinary.uploader.destroy(publicId, {
           resource_type: resourceType,
         });
       }
     } catch (error) {
       console.error('Cloudinary delete failed:', error);
-    }
-  }
-
-  /**
-   * Gets a thumbnail URL for a video.
-   */
-  static getVideoThumbnailUrl(publicId: string): string | null {
-    try {
-      if (!env.cloudinary.cloudName) return null;
-      
-      return cloudinary.url(publicId, {
-        resource_type: 'video',
-        format: 'jpg',
-        transformation: [
-          { width: 320, height: 240, crop: 'fill' },
-        ],
-      });
-    } catch (error) {
-      console.error('Failed to get video thumbnail:', error);
-      return null;
     }
   }
 }

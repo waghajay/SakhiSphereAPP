@@ -83,9 +83,7 @@ export class PostsService {
 
   /**
    * Gets the feed for a user with advanced algorithm.
-   */
-/**
-   * Gets the feed with advanced ranking algorithm.
+   * If user has no follows, shows global public posts.
    */
   static async getFeed(
     userId: number,
@@ -122,18 +120,22 @@ export class PostsService {
     let posts;
     let total;
 
+    // Build base where clause
+    const baseWhere: Prisma.PostWhereInput = {
+      visibility: 'public',
+      userId: {
+        notIn: blockedIds,
+      },
+    };
+
     switch (sortBy) {
       case 'popular':
-        // Fetch with engagement data for scoring
+        // Popular posts from everyone (global)
         const popularPosts = await prisma.post.findMany({
           where: {
-            userId: {
-              in: [userId, ...followingIds],
-              notIn: blockedIds,
-            },
-            visibility: { in: ['public', 'members_only'] },
+            ...baseWhere,
             createdAt: {
-              gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // Last 7 days
+              gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
             },
           },
           include: {
@@ -154,71 +156,78 @@ export class PostsService {
 
         // Calculate engagement score
         const scoredPosts = popularPosts.map(post => {
-          const likesScore = post._count.likes * 2;
-          const commentsScore = post._count.comments * 3;
-          const engagementScore = likesScore + commentsScore;
-          
-          // Time decay: newer posts get higher score
+          const engagementScore = (post._count.likes * 2) + (post._count.comments * 3);
           const hoursSincePosted = (Date.now() - post.createdAt.getTime()) / (1000 * 60 * 60);
           const timeFactor = 1 / (1 + hoursSincePosted);
-          
           const finalScore = engagementScore * timeFactor;
-          
           return { post, finalScore };
         });
 
-        // Sort by score
         scoredPosts.sort((a, b) => b.finalScore - a.finalScore);
-        
-        // Paginate
         total = scoredPosts.length;
         posts = scoredPosts.slice(skip, skip + limit).map(s => s.post);
         break;
 
       case 'following':
-        // Only posts from followed users
-        const followingPosts = await prisma.post.findMany({
-          where: {
-            userId: {
-              in: followingIds.length > 0 ? followingIds : [userId],
-              notIn: blockedIds,
-            },
-            visibility: { in: ['public', 'members_only'] },
+        // If user follows no one, show global posts instead
+        const followingWhere: Prisma.PostWhereInput = {
+          ...baseWhere,
+          userId: {
+            in: followingIds.length > 0 ? followingIds : undefined,
+            notIn: blockedIds,
           },
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                isVerified: true,
-                profile: { select: { avatarUrl: true } },
+        };
+
+        if (followingIds.length === 0) {
+          // No follows - show global posts
+          posts = await prisma.post.findMany({
+            where: baseWhere,
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  isVerified: true,
+                  profile: { select: { avatarUrl: true } },
+                },
+              },
+              likes: { where: { userId }, select: { id: true } },
+              _count: {
+                select: { likes: true, comments: true },
               },
             },
-            likes: { where: { userId }, select: { id: true } },
-            _count: {
-              select: { likes: true, comments: true },
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take: limit,
+          });
+          total = await prisma.post.count({ where: baseWhere });
+        } else {
+          posts = await prisma.post.findMany({
+            where: followingWhere,
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  isVerified: true,
+                  profile: { select: { avatarUrl: true } },
+                },
+              },
+              likes: { where: { userId }, select: { id: true } },
+              _count: {
+                select: { likes: true, comments: true },
+              },
             },
-          },
-          orderBy: { createdAt: 'desc' },
-          skip,
-          take: limit,
-        });
-        
-        total = await prisma.post.count({
-          where: {
-            userId: {
-              in: followingIds.length > 0 ? followingIds : [userId],
-              notIn: blockedIds,
-            },
-            visibility: { in: ['public', 'members_only'] },
-          },
-        });
-        
-        posts = followingPosts;
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take: limit,
+          });
+          total = await prisma.post.count({ where: followingWhere });
+        }
         break;
 
       case 'interests':
-        // Find users with similar interests
+        // Interest-based posts
         let similarUserIds: number[] = [];
         
         if (interestIds.length > 0) {
@@ -238,7 +247,6 @@ export class PostsService {
             take: 50,
           });
 
-          // Calculate similarity score for each user
           const userScores = new Map<number, number>();
           
           for (const ui of usersWithSimilarInterests) {
@@ -246,7 +254,6 @@ export class PostsService {
             userScores.set(ui.userId, currentScore + 1);
           }
 
-          // Sort users by similarity score
           const sortedUsers = Array.from(userScores.entries())
             .sort((a, b) => b[1] - a[1])
             .map(entry => entry[0]);
@@ -254,16 +261,23 @@ export class PostsService {
           similarUserIds = sortedUsers.slice(0, 20);
         }
 
-        const targetUserIds = [...new Set([...similarUserIds, ...followingIds])];
-        
-        const interestPosts = await prisma.post.findMany({
-          where: {
-            userId: {
-              in: targetUserIds.length > 0 ? targetUserIds : [userId],
-              notIn: blockedIds,
-            },
-            visibility: { in: ['public', 'members_only'] },
+        // If no similar users found, fall back to global
+        const targetUserIds = similarUserIds.length > 0 
+          ? [...new Set([...similarUserIds, ...followingIds])]
+          : undefined;
+
+        const interestsWhere: Prisma.PostWhereInput = {
+          ...baseWhere,
+          userId: targetUserIds ? {
+            in: targetUserIds,
+            notIn: blockedIds,
+          } : {
+            notIn: blockedIds,
           },
+        };
+
+        posts = await prisma.post.findMany({
+          where: interestsWhere,
           include: {
             user: {
               select: {
@@ -286,30 +300,25 @@ export class PostsService {
           take: limit,
         });
 
-        total = await prisma.post.count({
-          where: {
-            userId: {
-              in: targetUserIds.length > 0 ? targetUserIds : [userId],
-              notIn: blockedIds,
-            },
-            visibility: { in: ['public', 'members_only'] },
-          },
-        });
-
-        posts = interestPosts;
+        total = await prisma.post.count({ where: interestsWhere });
         break;
 
       case 'recent':
       default:
-        // Simple chronological feed
-        posts = await prisma.post.findMany({
-          where: {
-            userId: {
-              in: [userId, ...followingIds],
-              notIn: blockedIds,
-            },
-            visibility: { in: ['public', 'members_only'] },
+        // Recent posts - if following exists, show following + own
+        // If no following, show global public posts
+        const recentWhere: Prisma.PostWhereInput = {
+          ...baseWhere,
+          userId: followingIds.length > 0 ? {
+            in: [userId, ...followingIds],
+            notIn: blockedIds,
+          } : {
+            notIn: blockedIds,
           },
+        };
+
+        posts = await prisma.post.findMany({
+          where: recentWhere,
           include: {
             user: {
               select: {
@@ -329,22 +338,15 @@ export class PostsService {
           take: limit,
         });
 
-        total = await prisma.post.count({
-          where: {
-            userId: {
-              in: [userId, ...followingIds],
-              notIn: blockedIds,
-            },
-            visibility: { in: ['public', 'members_only'] },
-          },
-        });
+        total = await prisma.post.count({ where: recentWhere });
         break;
     }
 
     return {
       posts: posts.map(post => this.formatPost(post, userId)),
       feedType: sortBy,
-      feedExplanation: this.getFeedExplanation(sortBy),
+      feedExplanation: this.getFeedExplanation(sortBy, followingIds.length),
+      hasFollows: followingIds.length > 0,
       pagination: {
         page,
         limit,
@@ -354,25 +356,6 @@ export class PostsService {
       },
     };
   }
-
-
- /**
-   * Returns explanation for each feed type.
-   */
-  private static getFeedExplanation(sortBy: string): string {
-    switch (sortBy) {
-      case 'popular':
-        return 'Posts ranked by engagement (likes + comments) with recent posts boosted';
-      case 'following':
-        return 'Posts from people you follow, newest first';
-      case 'interests':
-        return 'Posts from users with similar interests to yours';
-      case 'recent':
-      default:
-        return 'Newest posts from your network';
-    }
-  }
-
 
   /**
    * Gets a single post by ID.
@@ -639,6 +622,27 @@ export class PostsService {
         hasMore: page * limit < total,
       },
     };
+  }
+
+  /**
+   * Returns explanation for each feed type.
+   */
+  private static getFeedExplanation(sortBy: string, followingCount: number): string {
+    if (followingCount === 0) {
+      return 'You are seeing posts from the SakhiSphere community. Follow people to personalize your feed!';
+    }
+
+    switch (sortBy) {
+      case 'popular':
+        return 'Posts ranked by engagement (likes + comments) with recent posts boosted';
+      case 'following':
+        return 'Posts from people you follow, newest first';
+      case 'interests':
+        return 'Posts from users with similar interests to yours';
+      case 'recent':
+      default:
+        return 'Newest posts from your network';
+    }
   }
 
   /**

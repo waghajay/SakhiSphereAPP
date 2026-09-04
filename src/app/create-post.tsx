@@ -1,5 +1,6 @@
+// Update create-post.tsx - Complete fixed version
+import { uploadToCloudinary } from "@/services/api/cloudinary";
 import { createPost } from "@/services/api/posts";
-import { uploadBase64Image } from "@/services/api/upload";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -18,15 +19,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+interface SelectedMedia {
+  uri: string;
+  type: "image" | "video";
+  mimeType: string;
+}
+
 export default function CreatePostScreen() {
   const [content, setContent] = useState("");
   const [visibility, setVisibility] = useState<
     "public" | "members_only" | "connections_only"
   >("public");
-  const [mediaImages, setMediaImages] = useState<string[]>([]);
-  const [mediaBase64, setMediaBase64] = useState<
-    { base64: string; mimeType: string; type: "image" | "video" }[]
-  >([]);
+  const [mediaFiles, setMediaFiles] = useState<SelectedMedia[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
@@ -35,10 +39,7 @@ export default function CreatePostScreen() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (status !== "granted") {
-      Alert.alert(
-        "Permission Required",
-        "Please allow access to your photos to upload images.",
-      );
+      Alert.alert("Permission Required", "Please allow access to your photos.");
       return;
     }
 
@@ -46,20 +47,16 @@ export default function CreatePostScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       selectionLimit: 4,
-      quality: 0.7,
-      base64: true,
+      quality: 0.8,
     });
 
     if (!result.canceled) {
-      const selectedImages = result.assets.map((asset) => asset.uri);
-      const selectedBase64 = result.assets.map((asset) => ({
-        base64: asset.base64 || "",
-        mimeType: asset.mimeType || "image/jpeg",
+      const selectedImages = result.assets.map((asset) => ({
+        uri: asset.uri,
         type: "image" as const,
+        mimeType: asset.mimeType || "image/jpeg",
       }));
-
-      setMediaImages([...mediaImages, ...selectedImages]);
-      setMediaBase64([...mediaBase64, ...selectedBase64]);
+      setMediaFiles([...mediaFiles, ...selectedImages]);
     }
   };
 
@@ -67,41 +64,43 @@ export default function CreatePostScreen() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (status !== "granted") {
-      Alert.alert(
-        "Permission Required",
-        "Please allow access to your media to upload videos.",
-      );
+      Alert.alert("Permission Required", "Please allow access to your videos.");
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      quality: 0.7,
-      base64: true,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: false,
+        quality: 0.7,
+        videoMaxDuration: 60,
+      });
 
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      setMediaImages([...mediaImages, asset.uri]);
-      setMediaBase64([
-        ...mediaBase64,
-        {
-          base64: asset.base64 || "",
-          mimeType: asset.mimeType || "video/mp4",
-          type: "video" as const,
-        },
-      ]);
+      if (!result.canceled) {
+        const asset = result.assets[0];
+        console.log("Video selected:", asset.uri, asset.mimeType);
+
+        setMediaFiles([
+          ...mediaFiles,
+          {
+            uri: asset.uri,
+            type: "video" as const,
+            mimeType: asset.mimeType || "video/mp4",
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Video picker error:", error);
+      Alert.alert("Error", "Failed to select video. Please try again.");
     }
   };
 
   const removeMedia = (index: number) => {
-    setMediaImages((prev) => prev.filter((_, i) => i !== index));
-    setMediaBase64((prev) => prev.filter((_, i) => i !== index));
+    setMediaFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // In create-post.tsx, update handleSubmit to handle errors better
   const handleSubmit = async () => {
-    if (!content.trim() && mediaImages.length === 0) {
+    if (!content.trim() && mediaFiles.length === 0) {
       Alert.alert(
         "Validation Error",
         "Please add some content or media to your post.",
@@ -116,40 +115,47 @@ export default function CreatePostScreen() {
       const uploadedUrls: string[] = [];
       const uploadedTypes: ("image" | "video")[] = [];
 
-      for (let i = 0; i < mediaBase64.length; i++) {
-        const media = mediaBase64[i];
+      for (let i = 0; i < mediaFiles.length; i++) {
+        const media = mediaFiles[i];
+        setUploadProgress(`Uploading ${i + 1}/${mediaFiles.length}...`);
 
-        if (media.base64) {
-          setUploadProgress(`Uploading ${i + 1}/${mediaBase64.length}...`);
+        try {
+          const result = await uploadToCloudinary(
+            media.uri,
+            media.type,
+            media.mimeType,
+            "sakhisphere/posts",
+          );
 
-          try {
-            const result = await uploadBase64Image(
-              media.base64,
-              media.mimeType,
-              "sakhisphere/posts",
-            );
+          if (result.url) {
             uploadedUrls.push(result.url);
             uploadedTypes.push(media.type);
-          } catch (uploadError) {
-            console.error(`Failed to upload media ${i + 1}:`, uploadError);
-            // Fallback to local URI if upload fails
-            uploadedUrls.push(mediaImages[i]);
-            uploadedTypes.push(media.type);
+            console.log(`Uploaded ${media.type} ${i + 1}:`, result.url);
           }
-        } else {
-          // No base64, use local URI directly
-          uploadedUrls.push(mediaImages[i]);
-          uploadedTypes.push(media.type);
+        } catch (uploadError) {
+          console.error(
+            `Failed to upload ${media.type} ${i + 1}:`,
+            uploadError,
+          );
         }
       }
 
-      // Create post even if some uploads failed
-      const post = await createPost({
-        content: content.trim(),
-        mediaUrls: uploadedUrls,
-        mediaTypes: uploadedTypes,
-        visibility,
-      });
+      if (uploadedUrls.length === 0 && content.trim()) {
+        // Text-only post
+        const post = await createPost({
+          content: content.trim(),
+          mediaUrls: [],
+          mediaTypes: [],
+          visibility,
+        });
+      } else {
+        const post = await createPost({
+          content: content.trim(),
+          mediaUrls: uploadedUrls,
+          mediaTypes: uploadedTypes,
+          visibility,
+        });
+      }
 
       Alert.alert("Success", "Your post has been created!", [
         { text: "OK", onPress: () => router.back() },
@@ -207,8 +213,6 @@ export default function CreatePostScreen() {
             textAlignVertical="top"
             maxLength={5000}
           />
-
-          {/* Character Count */}
           <Text style={styles.charCount}>{content.length}/5000</Text>
 
           {/* Upload Progress */}
@@ -220,18 +224,21 @@ export default function CreatePostScreen() {
           )}
 
           {/* Media Preview */}
-          {mediaImages.length > 0 && (
+          {mediaFiles.length > 0 && (
             <View style={styles.mediaPreviewContainer}>
-              {mediaImages.map((uri, index) => (
+              {mediaFiles.map((media, index) => (
                 <View key={index} style={styles.mediaPreviewWrapper}>
-                  <Image source={{ uri }} style={styles.mediaPreview} />
+                  <Image
+                    source={{ uri: media.uri }}
+                    style={styles.mediaPreview}
+                  />
                   <TouchableOpacity
                     style={styles.removeMediaBtn}
                     onPress={() => removeMedia(index)}
                   >
                     <Text style={styles.removeMediaText}>✕</Text>
                   </TouchableOpacity>
-                  {mediaBase64[index]?.type === "video" && (
+                  {media.type === "video" && (
                     <View style={styles.videoBadge}>
                       <Text style={styles.videoBadgeText}>▶ VIDEO</Text>
                     </View>
@@ -285,14 +292,6 @@ export default function CreatePostScreen() {
                 );
               })}
             </View>
-          </View>
-
-          {/* Info Note */}
-          <View style={styles.infoNote}>
-            <Text style={styles.infoText}>
-              💡 Tip: Share your experiences, ask questions, or connect with
-              other women in the community!
-            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -475,18 +474,5 @@ const styles = StyleSheet.create({
   visibilityLabelSelected: {
     color: "#7C3AED",
     fontWeight: "700",
-  },
-  infoNote: {
-    marginTop: 24,
-    backgroundColor: "#FAF5FF",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E9D5FF",
-  },
-  infoText: {
-    fontSize: 13,
-    color: "#6B21A8",
-    lineHeight: 18,
   },
 });

@@ -51,7 +51,7 @@ export class AuthController {
       const result = await AuthService.resendOtp(email, purpose || 'registration');
       res.status(200).json({
         success: true,
-        message: 'Verification code sent.',
+        message: 'Verification code sent to your email.',
         data: result,
       });
     } catch (error) {
