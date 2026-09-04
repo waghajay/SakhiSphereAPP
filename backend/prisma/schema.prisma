@@ -130,14 +130,15 @@ model VerificationRequest {
 // Phase 3 Models
 
 model Post {
-  id         Int            @id @default(autoincrement())
-  userId     Int            @map("user_id")
-  content    String         @db.Text
-  mediaUrls  String[]       @map("media_urls") @default([])
-  mediaTypes MediaType[]    @map("media_types") @default([])
-  visibility PostVisibility @default(public)
-  createdAt  DateTime       @default(now()) @map("created_at")
-  updatedAt  DateTime       @updatedAt @map("updated_at")
+  id              Int            @id @default(autoincrement())
+  userId          Int            @map("user_id")
+  content         String         @db.Text
+  mediaUrls       String[]       @map("media_urls") @default([])
+  mediaTypes      MediaType[]    @map("media_types") @default([])
+  mediaThumbnails String[]       @map("media_thumbnails") @default([])
+  visibility      PostVisibility @default(public)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   likes      PostLike[]

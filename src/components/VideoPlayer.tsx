@@ -1,13 +1,13 @@
-import { ResizeMode, Video } from "expo-av";
-import { useRef, useState } from "react";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { useState } from "react";
 import {
-    ActivityIndicator,
-    Dimensions,
-    Modal,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Dimensions,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 const { width, height } = Dimensions.get("window");
@@ -25,28 +25,23 @@ export function VideoPlayer({
   visible,
   onClose,
 }: VideoPlayerProps) {
-  const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [showControls, setShowControls] = useState(true);
-  const videoRef = useRef<Video>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
-  const handlePlayPause = async () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        await videoRef.current.pauseAsync();
-      } else {
-        await videoRef.current.playAsync();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
+  const player = useVideoPlayer(videoUrl, (player) => {
+    player.loop = false;
+    player.play();
+    setIsLoading(false);
+    setIsPlaying(true);
+  });
 
-  const handleClose = async () => {
-    if (videoRef.current) {
-      await videoRef.current.stopAsync();
+  const handleTogglePlay = () => {
+    if (isPlaying) {
+      player.pause();
+    } else {
+      player.play();
     }
-    setIsPlaying(false);
-    onClose();
+    setIsPlaying(!isPlaying);
   };
 
   if (!visible) return null;
@@ -56,56 +51,31 @@ export function VideoPlayer({
       visible={visible}
       transparent={true}
       animationType="fade"
-      onRequestClose={handleClose}
+      onRequestClose={onClose}
     >
       <View style={styles.container}>
         {/* Close Button */}
-        <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
+        <TouchableOpacity style={styles.closeButton} onPress={onClose}>
           <Text style={styles.closeText}>✕</Text>
         </TouchableOpacity>
 
         {/* Video Player */}
-        <TouchableOpacity
-          style={styles.videoContainer}
-          activeOpacity={1}
-          onPress={() => setShowControls(!showControls)}
-        >
-          <Video
-            ref={videoRef}
-            source={{ uri: videoUrl }}
+        <View style={styles.videoContainer}>
+          <VideoView
+            player={player}
             style={styles.video}
-            resizeMode={ResizeMode.CONTAIN}
-            isLooping
-            onPlaybackStatusUpdate={(status) => {
-              if (status.isLoaded) {
-                setIsLoading(false);
-                setIsPlaying(status.isPlaying);
-              }
-            }}
-            onLoadStart={() => setIsLoading(true)}
-            onLoad={() => setIsLoading(false)}
-            useNativeControls={false}
+            contentFit="contain"
+            nativeControls={true}
           />
 
           {/* Loading Indicator */}
           {isLoading && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#FFFFFF" />
+              <Text style={styles.loadingText}>Loading video...</Text>
             </View>
           )}
-
-          {/* Play/Pause Button */}
-          {showControls && !isLoading && (
-            <TouchableOpacity
-              style={styles.playPauseButton}
-              onPress={handlePlayPause}
-            >
-              <Text style={styles.playPauseIcon}>
-                {isPlaying ? "⏸️" : "▶️"}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </TouchableOpacity>
+        </View>
       </View>
     </Modal>
   );
@@ -116,6 +86,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.95)",
     justifyContent: "center",
+    alignItems: "center",
   },
   videoContainer: {
     width,
@@ -149,16 +120,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  playPauseButton: {
-    position: "absolute",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  playPauseIcon: {
-    fontSize: 28,
+  loadingText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    marginTop: 8,
   },
 });

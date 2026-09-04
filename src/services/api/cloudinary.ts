@@ -1,17 +1,15 @@
 import { API_BASE_URL } from "@/constants/Api";
 import { getAuthToken } from "@/services/storage/token";
-import * as FileSystem from "expo-file-system/legacy";
 
 export interface CloudinaryUploadResult {
   url: string;
   publicId: string;
   thumbnailUrl?: string;
   format?: string;
-  resourceType?: string;
 }
 
 /**
- * Uploads a file to Cloudinary via backend using Blob.
+ * Uploads a file using XMLHttpRequest (supports streaming, no memory issues).
  */
 export async function uploadToCloudinary(
   fileUri: string,
@@ -23,102 +21,75 @@ export async function uploadToCloudinary(
 
   console.log(`Uploading ${fileType}: ${fileUri}`);
 
-  try {
-    // Read file as base64 (but smaller chunks for video)
-    const base64 = await FileSystem.readAsStringAsync(fileUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    console.log(`File size: ${(base64.length / (1024 * 1024)).toFixed(2)}MB`);
-
-    // For large files, use chunked upload
-    if (base64.length > 10 * 1024 * 1024) {
-      // > 10MB
-      return await uploadLargeFile(base64, mimeType, fileType, folder, token);
-    }
-
-    // For smaller files, use JSON
-    const payload = {
-      base64,
-      mimeType,
-      folder,
-      fileName: `upload_${Date.now()}.${mimeType.split("/")[1]}`,
-    };
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
 
     const endpoint =
       fileType === "image"
-        ? `${API_BASE_URL}/upload/base64`
-        : `${API_BASE_URL}/upload/base64`;
+        ? `${API_BASE_URL}/upload/image`
+        : `${API_BASE_URL}/upload/video`;
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(payload),
-    });
+    xhr.open("POST", endpoint);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
-    const data = await response.json();
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = (event.loaded / event.total) * 100;
+        console.log(`Upload progress: ${percentComplete.toFixed(2)}%`);
+      }
+    };
 
-    if (!response.ok || !data.success) {
-      throw new Error(data.message || `Failed to upload ${fileType}`);
-    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (data.success) {
+            console.log("Upload successful:", data.data);
+            resolve(data.data as CloudinaryUploadResult);
+          } else {
+            reject(new Error(data.message || "Upload failed"));
+          }
+        } catch (error) {
+          reject(new Error("Failed to parse response"));
+        }
+      } else {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          reject(
+            new Error(
+              data.message || `Upload failed with status ${xhr.status}`,
+            ),
+          );
+        } catch (error) {
+          reject(new Error(`Upload failed with status ${xhr.status}`));
+        }
+      }
+    };
 
-    return data.data as CloudinaryUploadResult;
-  } catch (error) {
-    console.error(`Upload error:`, error);
-    throw error;
-  }
-}
+    xhr.onerror = () => {
+      reject(new Error("Network error during upload"));
+    };
 
-/**
- * Uploads large files in chunks.
- */
-async function uploadLargeFile(
-  base64: string,
-  mimeType: string,
-  fileType: "image" | "video",
-  folder: string,
-  token: string | null,
-): Promise<CloudinaryUploadResult> {
-  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
-  const chunks: string[] = [];
+    xhr.ontimeout = () => {
+      reject(new Error("Upload timed out"));
+    };
 
-  // Split base64 into chunks
-  for (let i = 0; i < base64.length; i += CHUNK_SIZE) {
-    chunks.push(base64.substring(i, i + CHUNK_SIZE));
-  }
+    // Create FormData
+    const formData = new FormData();
+    const fileName = fileUri.split("/").pop() || `upload_${Date.now()}`;
 
-  console.log(`Uploading ${chunks.length} chunks`);
+    // For React Native, use the file URI directly
+    formData.append(fileType, {
+      uri: fileUri,
+      name: fileName,
+      type: mimeType,
+    } as any);
 
-  // Upload all chunks
-  const payload = {
-    chunks,
-    mimeType,
-    folder,
-    fileName: `upload_${Date.now()}.${mimeType.split("/")[1]}`,
-    fileType,
-  };
+    formData.append("folder", folder);
 
-  const endpoint = `${API_BASE_URL}/upload/chunked`;
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
+    // Send request
+    xhr.send(formData);
   });
-
-  const data = await response.json();
-
-  if (!response.ok || !data.success) {
-    throw new Error(data.message || "Failed to upload file");
-  }
-
-  return data.data as CloudinaryUploadResult;
 }
 
 /**

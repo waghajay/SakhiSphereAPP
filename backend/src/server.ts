@@ -42,9 +42,16 @@ const apiLimiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
 });
 
+
+app.use((req, res, next) => {
+  req.setTimeout(300000); // 5 minutes
+  res.setTimeout(300000);
+  next();
+});
+
 // Body parsing
-app.use(express.json({ limit: '1000mb' })); // Increased for video base64
-app.use(express.urlencoded({ extended: true, limit: '1000mb' }));
+app.use(express.json({ limit: '1024mb' })); // Increased for video base64
+app.use(express.urlencoded({ extended: true, limit: '1024mb' }));
 
 // Apply rate limiting
 app.use('/api/auth', authLimiter);

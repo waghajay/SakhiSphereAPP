@@ -1,12 +1,10 @@
 import type { Post } from "@/types";
 import { router } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import { useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
   Image,
-  Linking,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -14,6 +12,7 @@ import {
 } from "react-native";
 import { ImageGallery } from "./ImageGallery";
 import { ShareModal } from "./ShareModal";
+import { VideoPlayer } from "./VideoPlayer";
 
 const { width, height } = Dimensions.get("window");
 
@@ -38,6 +37,7 @@ export function PostCard({
   const [initialImageIndex, setInitialImageIndex] = useState(0);
   const [showShareModal, setShowShareModal] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
+  const [playingVideo, setPlayingVideo] = useState<string | null>(null);
 
   const handleLike = () => {
     if (onLike) {
@@ -84,20 +84,9 @@ export function PostCard({
     }
   };
 
-  const handleVideoPress = async (url: string) => {
-    console.log("Opening video:", url);
-    try {
-      // Try to open in browser first
-      await WebBrowser.openBrowserAsync(url);
-    } catch (error) {
-      console.error("Failed to open in browser:", error);
-      // Fallback to Linking
-      try {
-        await Linking.openURL(url);
-      } catch (linkError) {
-        console.error("Failed to open video:", linkError);
-      }
-    }
+  const handleVideoPress = (url: string) => {
+    console.log("Playing video in app:", url);
+    setPlayingVideo(url);
   };
 
   const formatRelativeTime = (dateString: string) => {
@@ -167,11 +156,17 @@ export function PostCard({
                 activeOpacity={0.9}
               >
                 <View style={styles.videoContainer}>
-                  <Image
-                    source={{ uri: post.mediaUrls[0] }}
-                    style={styles.singleImage}
-                    resizeMode="cover"
-                  />
+                  {post.mediaThumbnails && post.mediaThumbnails[0] ? (
+                    <Image
+                      source={{ uri: post.mediaThumbnails[0] }}
+                      style={styles.singleImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.videoPlaceholder}>
+                      <Text style={styles.videoPlaceholderText}>🎬</Text>
+                    </View>
+                  )}
                   <View style={styles.playIconOverlay}>
                     <Text style={styles.playIcon}>▶️</Text>
                   </View>
@@ -212,7 +207,7 @@ export function PostCard({
                   }
                 >
                   <Image
-                    source={{ uri: url }}
+                    source={{ uri: post.mediaThumbnails?.[index] || url }}
                     style={[
                       styles.multiImage,
                       post.mediaUrls!.length === 3 &&
@@ -275,6 +270,13 @@ export function PostCard({
         visible={previewImages !== null}
         initialIndex={initialImageIndex}
         onClose={() => setPreviewImages(null)}
+      />
+
+      {/* Video Player Modal */}
+      <VideoPlayer
+        videoUrl={playingVideo || ""}
+        visible={playingVideo !== null}
+        onClose={() => setPlayingVideo(null)}
       />
 
       {/* Share Modal */}
@@ -354,6 +356,17 @@ const styles = StyleSheet.create({
   },
   videoContainer: {
     position: "relative",
+  },
+  videoPlaceholder: {
+    width: "100%",
+    height: 220,
+    borderRadius: 10,
+    backgroundColor: "#1F2937",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoPlaceholderText: {
+    fontSize: 48,
   },
   playIconOverlay: {
     position: "absolute",

@@ -195,7 +195,7 @@ export default function HomeScreen() {
         data={posts}
         renderItem={renderPost}
         keyExtractor={(item) => item.id.toString()}
-        contentContainerStyle={styles.feedContent}
+        contentContainerStyle={[styles.feedContent, { paddingBottom: 60 }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

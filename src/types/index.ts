@@ -121,6 +121,7 @@ export interface Post {
   content: string;
   mediaUrls: string[];
   mediaTypes: ("image" | "video")[];
+  mediaThumbnails?: string[];
   visibility: "public" | "members_only" | "connections_only";
   createdAt: string;
   updatedAt: string;

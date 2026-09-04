@@ -48,12 +48,13 @@ export class PostsService {
       throw new CustomError('Maximum 4 media items allowed per post', 400);
     }
 
-    const post = await prisma.post.create({
+  const post = await prisma.post.create({
       data: {
         userId,
         content: data.content.trim(),
         mediaUrls: data.mediaUrls || [],
         mediaTypes: data.mediaTypes || [],
+        mediaThumbnails: data.mediaThumbnails || [],
         visibility: data.visibility || 'public',
       },
       include: {
@@ -648,27 +649,29 @@ export class PostsService {
   /**
    * Helper method to format post response.
    */
-  private static formatPost(post: any, userId?: number) {
-    const likes = post.likes || [];
-    const likedByMe = userId ? likes.some((like: any) => like.userId === userId) : false;
+// Update formatPost method
+private static formatPost(post: any, userId?: number) {
+  const likes = post.likes || [];
+  const likedByMe = userId ? likes.some((like: any) => like.userId === userId) : false;
 
-    return {
-      id: post.id,
-      content: post.content,
-      mediaUrls: post.mediaUrls,
-      mediaTypes: post.mediaTypes,
-      visibility: post.visibility,
-      createdAt: post.createdAt,
-      updatedAt: post.updatedAt,
-      author: post.user ? {
-        id: post.user.id,
-        name: post.user.name,
-        isVerified: post.user.isVerified,
-        avatarUrl: post.user.profile?.avatarUrl || null,
-      } : null,
-      likesCount: post._count?.likes || 0,
-      commentsCount: post._count?.comments || 0,
-      likedByMe,
-    };
-  }
+  return {
+    id: post.id,
+    content: post.content,
+    mediaUrls: post.mediaUrls,
+    mediaTypes: post.mediaTypes,
+    mediaThumbnails: post.mediaThumbnails || [],
+    visibility: post.visibility,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+    author: post.user ? {
+      id: post.user.id,
+      name: post.user.name,
+      isVerified: post.user.isVerified,
+      avatarUrl: post.user.profile?.avatarUrl || null,
+    } : null,
+    likesCount: post._count?.likes || 0,
+    commentsCount: post._count?.comments || 0,
+    likedByMe,
+  };
+}
 }

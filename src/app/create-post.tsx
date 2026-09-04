@@ -71,13 +71,20 @@ export default function CreatePostScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        allowsEditing: false,
-        quality: 0.7,
-        videoMaxDuration: 60,
+        allowsEditing: true, // Allow trimming
+        quality: 0.3, // Very low quality for smaller file size
+        videoMaxDuration: 15, // Limit to 15 seconds
       });
 
       if (!result.canceled) {
         const asset = result.assets[0];
+
+        // Check file size if available
+        if (asset.fileSize && asset.fileSize > 1024 * 1024 * 1024) {
+          Alert.alert("Video Too Large", "Please select a video under 1GB.");
+          return;
+        }
+
         console.log("Video selected:", asset.uri, asset.mimeType);
 
         setMediaFiles([
@@ -170,7 +177,7 @@ export default function CreatePostScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
