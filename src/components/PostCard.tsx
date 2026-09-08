@@ -14,7 +14,7 @@ import { ImageGallery } from "./ImageGallery";
 import { ShareModal } from "./ShareModal";
 import { VideoPlayer } from "./VideoPlayer";
 
-const { width, height } = Dimensions.get("window");
+const { width } = Dimensions.get("window");
 
 interface PostCardProps {
   post: Post;
@@ -78,14 +78,18 @@ export function PostCard({
   };
 
   const handleImagePress = (index: number) => {
-    if (post.mediaUrls && post.mediaUrls.length > 0) {
-      setInitialImageIndex(index);
-      setPreviewImages(post.mediaUrls);
+    const validImages = validMediaUrls.filter(
+      (url, i) => post.mediaTypes?.[i] !== "video",
+    );
+    if (validImages.length > 0) {
+      const actualIndex = validMediaUrls.indexOf(validImages[0]);
+      setInitialImageIndex(actualIndex);
+      setPreviewImages(validImages);
     }
   };
 
   const handleVideoPress = (url: string) => {
-    console.log("Playing video in app:", url);
+    console.log("Playing video:", url);
     setPlayingVideo(url);
   };
 
@@ -103,8 +107,103 @@ export function PostCard({
     return date.toLocaleDateString();
   };
 
-  const isVideo = (index: number): boolean => {
+  // Filter out invalid URLs (local file paths)
+  const validMediaUrls = (post.mediaUrls || []).filter((url) => {
+    return (
+      url &&
+      url !== "" &&
+      !url.startsWith("file://") &&
+      !url.startsWith("/data/") &&
+      (url.startsWith("http://") || url.startsWith("https://"))
+    );
+  });
+
+  const isVideoType = (index: number): boolean => {
     return post.mediaTypes?.[index] === "video";
+  };
+
+  const renderMediaItem = (url: string, index: number) => {
+    if (isVideoType(index)) {
+      // Video - show thumbnail or placeholder
+      return (
+        <TouchableOpacity
+          key={index}
+          onPress={() => handleVideoPress(url)}
+          activeOpacity={0.9}
+          style={
+            validMediaUrls.length === 1
+              ? styles.singleImageWrapper
+              : styles.multiImageWrapper
+          }
+        >
+          <View style={styles.videoContainer}>
+            {post.mediaThumbnails?.[index] ? (
+              <Image
+                source={{ uri: post.mediaThumbnails[index] }}
+                style={
+                  validMediaUrls.length === 1
+                    ? styles.singleImage
+                    : styles.multiImage
+                }
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                style={
+                  validMediaUrls.length === 1
+                    ? styles.videoPlaceholderLarge
+                    : styles.videoPlaceholderSmall
+                }
+              >
+                <Text style={styles.videoPlaceholderText}>🎬</Text>
+              </View>
+            )}
+            <View
+              style={
+                validMediaUrls.length === 1
+                  ? styles.playIconOverlay
+                  : styles.playIconOverlaySmall
+              }
+            >
+              <Text
+                style={
+                  validMediaUrls.length === 1
+                    ? styles.playIcon
+                    : styles.playIconSmall
+                }
+              >
+                ▶️
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+
+    // Image
+    return (
+      <TouchableOpacity
+        key={index}
+        onPress={() => handleImagePress(index)}
+        activeOpacity={0.9}
+        style={
+          validMediaUrls.length === 1
+            ? styles.singleImageWrapper
+            : styles.multiImageWrapper
+        }
+      >
+        <Image
+          source={{ uri: url }}
+          style={
+            validMediaUrls.length === 1 ? styles.singleImage : styles.multiImage
+          }
+          resizeMode="cover"
+          onError={(e) =>
+            console.error(`Image ${index} load error:`, e.nativeEvent.error)
+          }
+        />
+      </TouchableOpacity>
+    );
   };
 
   return (
@@ -147,89 +246,26 @@ export function PostCard({
       {post.content ? <Text style={styles.content}>{post.content}</Text> : null}
 
       {/* Media */}
-      {post.mediaUrls && post.mediaUrls.length > 0 && (
+      {validMediaUrls.length > 0 && (
         <View style={styles.mediaContainer}>
-          {post.mediaUrls.length === 1 ? (
-            isVideo(0) ? (
-              <TouchableOpacity
-                onPress={() => handleVideoPress(post.mediaUrls![0])}
-                activeOpacity={0.9}
-              >
-                <View style={styles.videoContainer}>
-                  {post.mediaThumbnails && post.mediaThumbnails[0] ? (
-                    <Image
-                      source={{ uri: post.mediaThumbnails[0] }}
-                      style={styles.singleImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.videoPlaceholder}>
-                      <Text style={styles.videoPlaceholderText}>🎬</Text>
-                    </View>
-                  )}
-                  <View style={styles.playIconOverlay}>
-                    <Text style={styles.playIcon}>▶️</Text>
-                  </View>
-                  <View style={styles.videoBadge}>
-                    <Text style={styles.videoBadgeText}>VIDEO</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                onPress={() => handleImagePress(0)}
-                activeOpacity={0.9}
-              >
-                <Image
-                  source={{ uri: post.mediaUrls[0] }}
-                  style={styles.singleImage}
-                  resizeMode="cover"
-                />
-              </TouchableOpacity>
-            )
+          {validMediaUrls.length === 1 ? (
+            renderMediaItem(validMediaUrls[0], 0)
+          ) : validMediaUrls.length === 2 ? (
+            <View style={styles.twoImageRow}>
+              {validMediaUrls.map((url, index) => renderMediaItem(url, index))}
+            </View>
           ) : (
-            <View style={styles.multiImageContainer}>
-              {post.mediaUrls.map((url, index) => (
-                <TouchableOpacity
-                  key={index}
-                  onPress={() => {
-                    if (isVideo(index)) {
-                      handleVideoPress(url);
-                    } else {
-                      handleImagePress(index);
-                    }
-                  }}
-                  activeOpacity={0.9}
-                  style={
-                    index === 2 && post.mediaUrls!.length === 3
-                      ? styles.fullWidthWrapper
-                      : undefined
-                  }
-                >
-                  <Image
-                    source={{ uri: post.mediaThumbnails?.[index] || url }}
-                    style={[
-                      styles.multiImage,
-                      post.mediaUrls!.length === 3 &&
-                        index === 2 &&
-                        styles.fullWidthImage,
-                    ]}
-                    resizeMode="cover"
-                  />
-                  {isVideo(index) && (
-                    <View style={styles.multiVideoOverlay}>
-                      <Text style={styles.multiPlayIcon}>▶️</Text>
-                    </View>
-                  )}
-                  {post.mediaUrls!.length > 2 && index === 1 && (
-                    <View style={styles.moreImagesOverlay}>
-                      <Text style={styles.moreImagesText}>
-                        +{post.mediaUrls!.length - 2}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
+            <View style={styles.gridContainer}>
+              {validMediaUrls
+                .slice(0, 4)
+                .map((url, index) => renderMediaItem(url, index))}
+              {validMediaUrls.length > 4 && (
+                <View style={styles.moreImagesOverlay}>
+                  <Text style={styles.moreImagesText}>
+                    +{validMediaUrls.length - 4}
+                  </Text>
+                </View>
+              )}
             </View>
           )}
         </View>
@@ -298,14 +334,8 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     marginBottom: 12,
   },
-  header: {
-    marginBottom: 10,
-  },
-  authorInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
+  header: { marginBottom: 10 },
+  authorInfo: { flexDirection: "row", alignItems: "center", gap: 10 },
   avatar: {
     width: 40,
     height: 40,
@@ -321,53 +351,57 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#7C3AED",
-  },
-  nameRow: {
+  avatarText: { fontSize: 16, fontWeight: "700", color: "#7C3AED" },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  authorName: { fontSize: 14, fontWeight: "600", color: "#111827" },
+  verifiedBadge: { color: "#10B981", fontSize: 13, fontWeight: "700" },
+  time: { fontSize: 11, color: "#9CA3AF" },
+  content: { fontSize: 14, color: "#1F2937", lineHeight: 20, marginBottom: 10 },
+  mediaContainer: { marginBottom: 10 },
+
+  // Single media
+  singleImageWrapper: { width: "100%" },
+  singleImage: { width: "100%", height: 250, borderRadius: 10 },
+
+  // Multiple media
+  multiImageWrapper: { flex: 1, position: "relative" },
+  multiImage: { width: "100%", height: 150, borderRadius: 8 },
+
+  // Two images
+  twoImageRow: { flexDirection: "row", gap: 4 },
+  twoImage: { width: "100%", height: 200, borderRadius: 8 },
+
+  // Grid
+  gridContainer: {
     flexDirection: "row",
-    alignItems: "center",
+    flexWrap: "wrap",
     gap: 4,
-  },
-  authorName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  verifiedBadge: {
-    color: "#10B981",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  time: {
-    fontSize: 11,
-    color: "#9CA3AF",
-  },
-  content: {
-    fontSize: 14,
-    color: "#1F2937",
-    lineHeight: 20,
-    marginBottom: 10,
-  },
-  mediaContainer: {
-    marginBottom: 10,
-  },
-  videoContainer: {
     position: "relative",
   },
-  videoPlaceholder: {
+  gridItem: { width: "49%", height: 150, position: "relative" },
+  gridImage: { width: "100%", height: "100%", borderRadius: 8 },
+
+  // Video containers
+  videoContainer: { position: "relative" },
+  videoPlaceholderLarge: {
     width: "100%",
-    height: 220,
+    height: 250,
     borderRadius: 10,
     backgroundColor: "#1F2937",
     alignItems: "center",
     justifyContent: "center",
   },
-  videoPlaceholderText: {
-    fontSize: 48,
+  videoPlaceholderSmall: {
+    width: "100%",
+    height: 150,
+    borderRadius: 8,
+    backgroundColor: "#1F2937",
+    alignItems: "center",
+    justifyContent: "center",
   },
+  videoPlaceholderText: { fontSize: 48 },
+
+  // Play icon overlays
   playIconOverlay: {
     position: "absolute",
     top: "50%",
@@ -381,46 +415,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  playIcon: {
-    fontSize: 24,
-  },
-  videoBadge: {
-    position: "absolute",
-    bottom: 8,
-    left: 8,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  videoBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  singleImage: {
-    width: "100%",
-    height: 220,
-    borderRadius: 10,
-  },
-  multiImageContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 4,
-  },
-  fullWidthWrapper: {
-    width: "100%",
-  },
-  multiImage: {
-    width: "49%",
-    height: 150,
-    borderRadius: 8,
-  },
-  fullWidthImage: {
-    width: "100%",
-    height: 180,
-  },
-  multiVideoOverlay: {
+  playIcon: { fontSize: 24 },
+  playIconOverlaySmall: {
     position: "absolute",
     top: "50%",
     left: "50%",
@@ -433,23 +429,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  multiPlayIcon: {
-    fontSize: 20,
-  },
+  playIconSmall: { fontSize: 20 },
+
+  // More images overlay
   moreImagesOverlay: {
     position: "absolute",
-    bottom: 8,
-    right: 8,
+    bottom: 4,
+    right: 4,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
-  moreImagesText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  moreImagesText: { color: "#FFFFFF", fontSize: 18, fontWeight: "700" },
+
+  // Actions
   actions: {
     flexDirection: "row",
     gap: 24,
@@ -463,15 +457,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 4,
   },
-  actionIcon: {
-    fontSize: 16,
-  },
-  likedIcon: {
-    color: "#EF4444",
-  },
-  actionText: {
-    fontSize: 13,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
+  actionIcon: { fontSize: 16 },
+  likedIcon: { color: "#EF4444" },
+  actionText: { fontSize: 13, color: "#6B7280", fontWeight: "500" },
 });

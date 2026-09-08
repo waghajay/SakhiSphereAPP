@@ -1,4 +1,5 @@
 import { PostCard } from "@/components/PostCard";
+import { createOrGetConversation } from "@/services/api/chat";
 import {
   checkFollowStatus,
   getFollowCounts,
@@ -175,8 +176,13 @@ export default function UserProfileScreen() {
     }
   };
 
-  const handleMessage = () => {
-    Alert.alert("Message", "Messaging feature coming in Phase 4!");
+  const handleMessage = async () => {
+    try {
+      const conversation = await createOrGetConversation(userId);
+      router.push(`/chat/${conversation.id}` as any);
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to start conversation");
+    }
   };
 
   const mediaPosts = posts.filter(

@@ -1,9 +1,33 @@
+import { getUnreadCount } from "@/services/api/chat";
+import { socketService } from "@/services/socket";
 import { Tabs } from "expo-router";
-import { StyleSheet, Text } from "react-native";
+import { useEffect, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadUnreadCount = async () => {
+    try {
+      const data = await getUnreadCount();
+      setUnreadCount(data.unreadCount);
+    } catch (error) {
+      console.error("Failed to load unread count:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadUnreadCount();
+
+    // Update unread count when new messages arrive
+    socketService.onNewMessage(() => {
+      loadUnreadCount();
+    });
+
+    return () => {};
+  }, []);
 
   return (
     <Tabs
@@ -52,7 +76,16 @@ export default function TabsLayout() {
         options={{
           title: "Chat",
           tabBarIcon: ({ color }) => (
-            <Text style={[styles.tabIcon, { color }]}>💬</Text>
+            <View>
+              <Text style={{ color, fontSize: 22 }}>💬</Text>
+              {unreadCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </View>
           ),
         }}
       />
@@ -81,5 +114,22 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   tabIcon: {
     fontSize: 22,
+  },
+  badge: {
+    position: "absolute",
+    top: -5,
+    right: -10,
+    backgroundColor: "#EF4444",
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
   },
 });

@@ -35,6 +35,12 @@ export default function CreatePostScreen() {
   const [uploadProgress, setUploadProgress] = useState("");
 
   const pickImages = async () => {
+    const remainingSlots = 4 - mediaFiles.length;
+    if (remainingSlots <= 0) {
+      Alert.alert("Limit Reached", "Maximum 4 media items allowed per post.");
+      return;
+    }
+
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (status !== "granted") {
@@ -45,7 +51,7 @@ export default function CreatePostScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
-      selectionLimit: 4,
+      selectionLimit: remainingSlots,
       quality: 0.8,
     });
 
@@ -60,6 +66,17 @@ export default function CreatePostScreen() {
   };
 
   const pickVideo = async () => {
+    const hasVideo = mediaFiles.some((media) => media.type === "video");
+    if (hasVideo) {
+      Alert.alert("Limit Reached", "Only 1 video allowed per post.");
+      return;
+    }
+
+    if (mediaFiles.length >= 4) {
+      Alert.alert("Limit Reached", "Maximum 4 media items allowed per post.");
+      return;
+    }
+
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (status !== "granted") {
@@ -77,8 +94,6 @@ export default function CreatePostScreen() {
 
       if (!result.canceled) {
         const asset = result.assets[0];
-        console.log("Video selected:", asset.uri, asset.mimeType);
-
         setMediaFiles([
           ...mediaFiles,
           {
@@ -100,10 +115,7 @@ export default function CreatePostScreen() {
 
   const handleSubmit = async () => {
     if (!content.trim() && mediaFiles.length === 0) {
-      Alert.alert(
-        "Validation Error",
-        "Please add some content or media to your post.",
-      );
+      Alert.alert("Validation Error", "Please add some content or media.");
       return;
     }
 
@@ -113,12 +125,16 @@ export default function CreatePostScreen() {
     try {
       const uploadedUrls: string[] = [];
       const uploadedTypes: ("image" | "video")[] = [];
+      const uploadedThumbnails: string[] = [];
 
+      // Upload each media file
       for (let i = 0; i < mediaFiles.length; i++) {
         const media = mediaFiles[i];
         setUploadProgress(`Uploading ${i + 1}/${mediaFiles.length}...`);
 
         try {
+          console.log(`Uploading media ${i + 1}:`, media.type, media.mimeType);
+
           const result = await uploadToCloudinary(
             media.uri,
             media.type,
@@ -126,31 +142,41 @@ export default function CreatePostScreen() {
             "sakhisphere/posts",
           );
 
-          console.log(`Upload result for ${media.type} ${i + 1}:`, result);
+          console.log(`Upload result ${i + 1}:`, result);
 
-          if (result.url) {
+          if (result && result.url) {
             uploadedUrls.push(result.url);
             uploadedTypes.push(media.type);
+            if (media.type === "video") {
+              uploadedThumbnails.push(result.thumbnailUrl || "");
+            } else {
+              uploadedThumbnails.push("");
+            }
+          } else {
+            console.error(`No URL in result for media ${i + 1}`);
           }
         } catch (uploadError) {
-          console.error(
-            `Failed to upload ${media.type} ${i + 1}:`,
-            uploadError,
-          );
+          console.error(`Upload failed for media ${i + 1}:`, uploadError);
+          // Continue with other media
         }
       }
 
-      console.log("Uploaded URLs:", uploadedUrls);
-      console.log("Uploaded types:", uploadedTypes);
+      console.log("Final uploadedUrls:", uploadedUrls);
+      console.log("Final uploadedTypes:", uploadedTypes);
 
-      const post = await createPost({
+      // Create post with what we have
+      const postData = {
         content: content.trim(),
         mediaUrls: uploadedUrls,
         mediaTypes: uploadedTypes,
         visibility,
-      });
+      };
 
-      console.log("Post created:", post);
+      console.log("Creating post with:", postData);
+
+      const post = await createPost(postData);
+
+      console.log("Post created successfully:", post);
 
       Alert.alert("Success", "Your post has been created!", [
         { text: "OK", onPress: () => router.back() },
@@ -243,11 +269,17 @@ export default function CreatePostScreen() {
           <View style={styles.mediaButtons}>
             <TouchableOpacity style={styles.mediaButton} onPress={pickImages}>
               <Text style={styles.mediaButtonIcon}>📸</Text>
-              <Text style={styles.mediaButtonText}>Add Photos</Text>
+              <Text style={styles.mediaButtonText}>
+                Add Photos ({4 - mediaFiles.length} left)
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.mediaButton} onPress={pickVideo}>
               <Text style={styles.mediaButtonIcon}>🎬</Text>
-              <Text style={styles.mediaButtonText}>Add Video</Text>
+              <Text style={styles.mediaButtonText}>
+                {mediaFiles.some((m) => m.type === "video")
+                  ? "Video Added"
+                  : "Add Video"}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -290,10 +322,7 @@ export default function CreatePostScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
+  container: { flex: 1, backgroundColor: "#FFFFFF" },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -303,28 +332,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
-  cancelText: {
-    fontSize: 16,
-    color: "#6B7280",
-    fontWeight: "500",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  postText: {
-    fontSize: 16,
-    color: "#7C3AED",
-    fontWeight: "700",
-  },
-  postTextDisabled: {
-    opacity: 0.5,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 40,
-  },
+  cancelText: { fontSize: 16, color: "#6B7280", fontWeight: "500" },
+  headerTitle: { fontSize: 18, fontWeight: "700", color: "#111827" },
+  postText: { fontSize: 16, color: "#7C3AED", fontWeight: "700" },
+  postTextDisabled: { opacity: 0.5 },
+  content: { padding: 20, paddingBottom: 40 },
   contentInput: {
     minHeight: 120,
     fontSize: 16,
@@ -347,26 +359,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 12,
   },
-  progressText: {
-    fontSize: 12,
-    color: "#7C3AED",
-    fontWeight: "600",
-  },
+  progressText: { fontSize: 12, color: "#7C3AED", fontWeight: "600" },
   mediaPreviewContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
     marginTop: 16,
   },
-  mediaPreviewWrapper: {
-    position: "relative",
-    width: "48%",
-  },
-  mediaPreview: {
-    width: "100%",
-    height: 150,
-    borderRadius: 12,
-  },
+  mediaPreviewWrapper: { position: "relative", width: "48%" },
+  mediaPreview: { width: "100%", height: 150, borderRadius: 12 },
   removeMediaBtn: {
     position: "absolute",
     top: 8,
@@ -378,11 +379,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  removeMediaText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  removeMediaText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
   videoBadge: {
     position: "absolute",
     bottom: 8,
@@ -392,16 +389,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
-  videoBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  mediaButtons: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 16,
-  },
+  videoBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
+  mediaButtons: { flexDirection: "row", gap: 12, marginTop: 16 },
   mediaButton: {
     flex: 1,
     flexDirection: "row",
@@ -415,27 +404,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
   },
-  mediaButtonIcon: {
-    fontSize: 20,
-  },
+  mediaButtonIcon: { fontSize: 20 },
   mediaButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
     color: "#7C3AED",
+    textAlign: "center",
   },
-  visibilitySection: {
-    marginTop: 24,
-  },
+  visibilitySection: { marginTop: 24 },
   visibilityTitle: {
     fontSize: 15,
     fontWeight: "700",
     color: "#111827",
     marginBottom: 12,
   },
-  visibilityOptions: {
-    flexDirection: "row",
-    gap: 8,
-  },
+  visibilityOptions: { flexDirection: "row", gap: 8 },
   visibilityOption: {
     flex: 1,
     flexDirection: "row",
@@ -453,16 +436,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3E8FF",
     borderColor: "#7C3AED",
   },
-  visibilityIcon: {
-    fontSize: 16,
-  },
-  visibilityLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  visibilityLabelSelected: {
-    color: "#7C3AED",
-    fontWeight: "700",
-  },
+  visibilityIcon: { fontSize: 16 },
+  visibilityLabel: { fontSize: 12, fontWeight: "600", color: "#374151" },
+  visibilityLabelSelected: { color: "#7C3AED", fontWeight: "700" },
 });

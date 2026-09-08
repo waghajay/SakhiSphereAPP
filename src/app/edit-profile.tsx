@@ -1,4 +1,4 @@
-import { uploadBase64Image } from "@/services/api/upload";
+import { uploadToCloudinary } from "@/services/api/cloudinary";
 import { getMyProfile, updateMyProfile } from "@/services/api/user";
 import { saveUserData } from "@/services/storage/token";
 import * as ImagePicker from "expo-image-picker";
@@ -113,18 +113,18 @@ export default function EditProfileScreen() {
       let finalAvatarUrl = avatarUrl;
 
       // Upload new photo if selected
-      if (avatarBase64) {
+      if (avatarBase64 && avatarUrl.startsWith("file://")) {
         setUploadingPhoto(true);
         try {
-          const uploadResult = await uploadBase64Image(
-            avatarBase64,
+          const uploadResult = await uploadToCloudinary(
+            avatarUrl,
+            "image",
             avatarMimeType,
             "sakhisphere/profile_photos",
           );
           finalAvatarUrl = uploadResult.url;
         } catch (uploadError) {
           console.error("Failed to upload profile photo:", uploadError);
-          // Continue with existing avatar if upload fails
         } finally {
           setUploadingPhoto(false);
         }
@@ -149,7 +149,6 @@ export default function EditProfileScreen() {
       setSaving(false);
     }
   };
-
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
