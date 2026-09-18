@@ -88,6 +88,27 @@ export default function RootLayout() {
           <Stack.Screen name="followers/[userId]" />
           <Stack.Screen name="following/[userId]" />
           <Stack.Screen name="chat/[id]" />
+          <Stack.Screen
+            name="groups/create"
+            options={{ presentation: "modal" }}
+          />
+          <Stack.Screen name="groups/[id]/index" />
+          <Stack.Screen name="groups/[id]/members" />
+          <Stack.Screen name="groups/[id]/settings" />
+          <Stack.Screen name="groups/[id]/discussions" />
+          <Stack.Screen name="groups/posts/[postId]" />
+
+          <Stack.Screen name="events/index" />
+          <Stack.Screen
+            name="events/create"
+            options={{ presentation: "modal" }}
+          />
+          <Stack.Screen name="events/[id]" />
+          <Stack.Screen name="events/my" />
+          <Stack.Screen
+            name="events/edit/[id]"
+            options={{ presentation: "modal" }}
+          />
         </Stack>
       </SimpleErrorBoundary>
     </SafeAreaProvider>
