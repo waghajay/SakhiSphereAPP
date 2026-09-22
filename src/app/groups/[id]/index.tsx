@@ -265,6 +265,24 @@ export default function GroupDetailScreen() {
               <Text style={styles.menuArrow}>›</Text>
             </TouchableOpacity>
           )}
+          {group.isMember && (
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() =>
+                router.push({
+                  pathname: "/meetings/create",
+                  params: {
+                    groupId: group.id.toString(),
+                    groupName: group.name,
+                  },
+                } as any)
+              }
+            >
+              <Text style={styles.menuIcon}>📹</Text>
+              <Text style={styles.menuLabel}>Start Meeting</Text>
+              <Text style={styles.menuArrow}>›</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>

@@ -15,7 +15,8 @@
       "buildNumber": "1.0.0",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "SakhiSphere needs access to your photo library to upload images.",
-        "NSCameraUsageDescription": "SakhiSphere needs access to your camera to take photos."
+        "NSCameraUsageDescription": "SakhiSphere needs access to your camera to take photos.",
+        "NSMicrophoneUsageDescription": "SakhiSphere needs microphone access to make video calls."
       }
     },
     "android": {
@@ -35,7 +36,8 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "enableProguardInReleaseBuilds": true,
       "enableShrinkResourcesInReleaseBuilds": true,

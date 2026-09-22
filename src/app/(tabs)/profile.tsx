@@ -20,7 +20,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
-const GRID_SIZE = (width - 32 - 4) / 3; // Account for padding and gaps
+const GRID_SIZE = (width - 32 - 4) / 3;
 
 export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -345,6 +345,16 @@ export default function ProfileScreen() {
             <Text style={styles.menuItemText}>
               Privacy & Notification Settings
             </Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+
+          {/* NEW: My Meetings */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push("/meetings" as any)}
+          >
+            <Text style={styles.menuItemIcon}>📹</Text>
+            <Text style={styles.menuItemText}>My Meetings</Text>
             <Text style={styles.menuArrow}>›</Text>
           </TouchableOpacity>
         </View>

@@ -7,7 +7,6 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 SplashScreen.preventAutoHideAsync();
 
-// Simple error boundary component (inline to avoid import issues)
 import React from "react";
 import { Text, View } from "react-native";
 
@@ -43,15 +42,12 @@ export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
 
-    // Register for push notifications (safe - handles Expo Go)
     notificationService.registerForPushNotifications();
 
-    // Handle notification received
     notificationService.addNotificationReceivedListener((notification) => {
       console.log("Notification received");
     });
 
-    // Handle notification tap
     notificationService.addNotificationResponseReceivedListener((response) => {
       const data = response?.notification?.request?.content?.data;
       if (data?.conversationId) {
@@ -65,8 +61,11 @@ export default function RootLayout() {
       <SimpleErrorBoundary>
         <StatusBar style="dark" />
         <Stack screenOptions={{ headerShown: false }}>
+          {/* Auth + Tabs */}
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
+
+          {/* Profile / auth-adjacent */}
           <Stack.Screen
             name="edit-profile"
             options={{ presentation: "modal" }}
@@ -74,6 +73,8 @@ export default function RootLayout() {
           <Stack.Screen name="interests" />
           <Stack.Screen name="verification" />
           <Stack.Screen name="settings" />
+
+          {/* Posts */}
           <Stack.Screen
             name="create-post"
             options={{ presentation: "modal" }}
@@ -84,10 +85,17 @@ export default function RootLayout() {
             options={{ presentation: "modal" }}
           />
           <Stack.Screen name="liked-posts" />
+
+          {/* Users + social */}
           <Stack.Screen name="user/[id]" />
           <Stack.Screen name="followers/[userId]" />
           <Stack.Screen name="following/[userId]" />
+
+          {/* Chat */}
           <Stack.Screen name="chat/[id]" />
+
+          {/* Groups */}
+          <Stack.Screen name="groups/index" />
           <Stack.Screen
             name="groups/create"
             options={{ presentation: "modal" }}
@@ -98,6 +106,7 @@ export default function RootLayout() {
           <Stack.Screen name="groups/[id]/discussions" />
           <Stack.Screen name="groups/posts/[postId]" />
 
+          {/* Events */}
           <Stack.Screen name="events/index" />
           <Stack.Screen
             name="events/create"
@@ -108,6 +117,18 @@ export default function RootLayout() {
           <Stack.Screen
             name="events/edit/[id]"
             options={{ presentation: "modal" }}
+          />
+
+          {/* Meetings */}
+          <Stack.Screen name="meetings/index" />
+          <Stack.Screen
+            name="meetings/create"
+            options={{ presentation: "modal" }}
+          />
+          <Stack.Screen name="meetings/[id]" />
+          <Stack.Screen
+            name="meetings/[id]/room"
+            options={{ headerShown: false, presentation: "fullScreenModal" }}
           />
         </Stack>
       </SimpleErrorBoundary>

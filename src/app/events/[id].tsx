@@ -1,25 +1,25 @@
 import {
-    cancelRsvp,
-    getEvent,
-    getEventAttendees,
-    rsvpEvent,
-    type AppEvent,
-    type EventAttendee,
-    type EventRsvpStatus,
+  cancelRsvp,
+  getEvent,
+  getEventAttendees,
+  rsvpEvent,
+  type AppEvent,
+  type EventAttendee,
+  type EventRsvpStatus,
 } from "@/services/api/events";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Linking,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -71,7 +71,6 @@ export default function EventDetailScreen() {
             }
           : prev,
       );
-      // Refresh attendees if going
       if (status === "going") {
         const data = await getEventAttendees(event.id, "going", 1, 20);
         setAttendees(data.attendees);
@@ -377,6 +376,45 @@ export default function EventDetailScreen() {
               </View>
             </View>
           )}
+
+          {/* Virtual Meeting Actions */}
+          {event.isVirtual && event.isOrganizer && (
+            <TouchableOpacity
+              style={styles.startMeetingButton}
+              onPress={() =>
+                router.push({
+                  pathname: "/meetings/create",
+                  params: {
+                    eventId: event.id.toString(),
+                    eventTitle: event.title,
+                  },
+                } as any)
+              }
+            >
+              <Text style={styles.startMeetingButtonText}>
+                📹 Start Virtual Meeting
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {event.isVirtual && !event.isOrganizer && (
+            <TouchableOpacity
+              style={[
+                styles.startMeetingButton,
+                styles.startMeetingButtonSecondary,
+              ]}
+              onPress={() =>
+                router.push({
+                  pathname: "/meetings",
+                  params: { eventId: event.id.toString() },
+                } as any)
+              }
+            >
+              <Text style={styles.startMeetingButtonTextSecondary}>
+                📹 Join Meeting
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Attendees */}
@@ -633,4 +671,26 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   pastRsvpSub: { fontSize: 13, color: "#9CA3AF" },
+  startMeetingButton: {
+    marginTop: 16,
+    backgroundColor: "#7C3AED",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  startMeetingButtonSecondary: {
+    backgroundColor: "#F3E8FF",
+    borderWidth: 1.5,
+    borderColor: "#D8B4FE",
+  },
+  startMeetingButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  startMeetingButtonTextSecondary: {
+    color: "#7C3AED",
+    fontSize: 15,
+    fontWeight: "700",
+  },
 });
